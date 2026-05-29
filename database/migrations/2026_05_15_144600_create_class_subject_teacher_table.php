@@ -15,14 +15,13 @@ return new class extends Migration
         Schema::create('class_subject_teacher', function (Blueprint $table) {
             $table->id();
             $table->foreignId('class_id')->constrained('classes')->onDelete('cascade');
-            $table->foreignId('section_id')->constrained('sections')->onDelete('cascade');
             $table->foreignId('subject_id')->constrained('subjects')->onDelete('cascade');
             $table->foreignId('teacher_id')->constrained('staff')->onDelete('cascade');
             $table->string('academic_session')->nullable();
             $table->integer('max_weekly_periods')->nullable();
             $table->timestamps();
 
-            $table->unique(['class_id', 'section_id', 'subject_id', 'academic_session'], 'unique_class_section_subject');
+            $table->unique(['class_id', 'subject_id', 'academic_session'], 'unique_class_section_subject');
         });
     }
 }

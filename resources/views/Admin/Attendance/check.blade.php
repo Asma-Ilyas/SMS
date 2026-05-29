@@ -1,45 +1,44 @@
 @extends('layouts.app')
-@section('title', 'Mark Attendance')
+@section('title', 'Check In / Check Out')
 @section('content')
-<div class="container mx-auto px-4 py-6">
-    <div class="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden">
-        <div class="p-8">
-            <h2 class="text-2xl font-bold text-center mb-6">Mark Attendance</h2>
+<div class="max-w-2xl mx-auto py-8">
+    <div class="bg-white rounded shadow p-6">
+        <h1 class="text-2xl font-bold mb-4">Employee Attendance Check</h1>
 
-            @if(session('success'))
-                <div class="mb-4 p-3 bg-green-100 text-green-700 rounded">{{ session('success') }}</div>
-            @endif
-            @if(session('error'))
-                <div class="mb-4 p-3 bg-red-100 text-red-700 rounded">{{ session('error') }}</div>
-            @endif
+        @if(session('success'))
+            <div class="bg-green-100 text-green-800 p-3 rounded mb-4">{{ session('success') }}</div>
+        @endif
+        @if(session('error'))
+            <div class="bg-red-100 text-red-800 p-3 rounded mb-4">{{ session('error') }}</div>
+        @endif
 
-            <form method="POST" action="{{ route('admin.attendance.checkin') }}" class="mb-4">
+        <div x-data="{ employee_id: '' }">
+            <form method="POST" action="{{ route('admin.attendance.checkin') }}" class="space-y-4">
                 @csrf
-                <div class="mb-4">
-                    <label class="block font-medium mb-1">Select Employee</label>
-                    <select name="employee_id" required class="w-full border rounded px-3 py-2">
-                        <option value="">-- Select Staff --</option>
+                <div>
+                    <label class="block font-medium">Employee *</label>
+                    <select name="employee_id" x-model="employee_id" class="w-full border rounded px-3 py-2" required>
+                        <option value="">Select Employee</option>
                         @foreach($employees as $emp)
                             <option value="{{ $emp->id }}">{{ $emp->first_name }} {{ $emp->last_name }}</option>
                         @endforeach
                     </select>
                 </div>
-                <button type="submit" class="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700">Check In</button>
+                <div class="flex space-x-4">
+                    <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Check In</button>
+                    <button type="button" @click="$refs.checkoutForm.submit()" class="bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700">Check Out</button>
+                </div>
             </form>
 
-            <form method="POST" action="{{ route('admin.attendance.checkout') }}">
+            <form method="POST" action="{{ route('admin.attendance.checkout') }}" x-ref="checkoutForm">
                 @csrf
-                <div class="mb-4">
-                    <label class="block font-medium mb-1">Select Employee</label>
-                    <select name="employee_id" required class="w-full border rounded px-3 py-2">
-                        <option value="">-- Select Staff --</option>
-                        @foreach($employees as $emp)
-                            <option value="{{ $emp->id }}">{{ $emp->first_name }} {{ $emp->last_name }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <button type="submit" class="w-full bg-red-600 text-white py-2 rounded hover:bg-red-700">Check Out</button>
+                <input type="hidden" name="employee_id" :value="employee_id">
             </form>
+        </div>
+
+        <div class="mt-6 text-sm text-gray-500">
+            <p>✅ Check In automatically sets status: Present or Late (based on category arrival time).</p>
+            <p>✅ Check Out calculates work hours & final status (Half‑day if < 4 hours).</p>
         </div>
     </div>
 </div>

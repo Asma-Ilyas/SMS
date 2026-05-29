@@ -195,56 +195,92 @@
             <div class="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Examination</div>
         </div>
 
-        <a href="{{ route('admin.exams.index') }}" 
-           class="flex items-center px-4 py-2.5 rounded-xl transition-all duration-200 {{ request()->routeIs('admin.exams.*') && !request()->routeIs('admin.exam-results.*') ? 'bg-indigo-600 shadow-md text-white' : 'text-gray-300 hover:bg-gray-700/50 hover:text-white' }}">
-            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-            </svg>
-            Manage Exams
-        </a>
-
-        <a href="{{ route('admin.exam-groups.index') }}" 
-           class="flex items-center px-4 py-2.5 rounded-xl transition-all duration-200 {{ request()->routeIs('admin.exam-groups.*') ? 'bg-indigo-600 shadow-md text-white' : 'text-gray-300 hover:bg-gray-700/50 hover:text-white' }}">
-            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
-            </svg>
-            Manage Groups
-        </a>
-
-        <a href="{{ route('admin.exam-types.index') }}" 
-           class="flex items-center px-4 py-2.5 rounded-xl transition-all duration-200 {{ request()->routeIs('admin.exam-types.*') ? 'bg-indigo-600 shadow-md text-white' : 'text-gray-300 hover:bg-gray-700/50 hover:text-white' }}">
-            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-            </svg>
-            Exam Types
-        </a>
-
-        <!-- Exam Results dropdown -->
-        <div x-data="{ open: false }" class="relative">
-            <button @click="open = !open" 
+        <!-- Exam Setup (dropdown) -->
+        <div x-data="{ openExamSetup: false }" class="relative">
+            <button @click="openExamSetup = !openExamSetup" 
                     class="w-full flex items-center justify-between px-4 py-2.5 rounded-xl transition-all duration-200 text-gray-300 hover:bg-gray-700/50 hover:text-white">
                 <div class="flex items-center">
                     <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                     </svg>
-                    <span>Exam Results</span>
+                    <span>Exam Setup</span>
                 </div>
-                <svg class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': open }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': openExamSetup }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                 </svg>
             </button>
-            <div x-show="open" 
+            <div x-show="openExamSetup" 
                  x-transition:enter="transition ease-out duration-200"
                  x-transition:enter-start="transform opacity-0 -translate-y-2"
                  x-transition:enter-end="transform opacity-100 translate-y-0"
                  class="ml-7 mt-1 space-y-1 border-l border-gray-700/50">
-                <a href="{{ route('admin.exam-results.bulk-print-form', 'placeholder') }}" class="flex items-center px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/30" 
-                   onclick="alert('Please select an exam from the Manage Exams page first.'); return false;">Bulk Print Results</a>
-                <a href="{{ route('admin.exam-results.academic-report', ['student' => 'placeholder']) }}" class="flex items-center px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/30"
-                   onclick="alert('Please go to Academic Report from the exam results section.'); return false;">Academic Report</a>
-                <a href="{{ route('admin.exam-results.multi-group-report.form') }}" class="flex items-center px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/30">Multi‑Group Report</a>
+                <a href="{{ route('admin.exam-types.index') }}" class="flex items-center px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/30">Exam Types</a>
+                <a href="{{ route('admin.exam-groups.index') }}" class="flex items-center px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/30">Exam Groups</a>
+                <a href="{{ route('admin.exams.index') }}" class="flex items-center px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/30">Manage Exams</a>
             </div>
         </div>
+
+        <!-- Mark Entry (dropdown) -->
+        <div x-data="{ openMarkEntry: false }" class="relative">
+            <button @click="openMarkEntry = !openMarkEntry" 
+                    class="w-full flex items-center justify-between px-4 py-2.5 rounded-xl transition-all duration-200 text-gray-300 hover:bg-gray-700/50 hover:text-white">
+                <div class="flex items-center">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                    </svg>
+                    <span>Mark Entry</span>
+                </div>
+                <svg class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': openMarkEntry }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+            <div x-show="openMarkEntry" 
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="transform opacity-0 -translate-y-2"
+                 x-transition:enter-end="transform opacity-100 translate-y-0"
+                 class="ml-7 mt-1 space-y-1 border-l border-gray-700/50">
+                <a href="{{ route('admin.exam-marks.index') }}" class="flex items-center px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/30">Mark Entry Dashboard</a>
+                <a href="{{ route('admin.exam-marks.create', ['exam_id' => null, 'class_id' => null, 'subject_id' => null]) }}" class="flex items-center px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/30">By Subject (Grid)</a>
+                <a href="{{ route('admin.exam-marks.bulk-upload') }}" class="flex items-center px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/30">Bulk Upload (Excel)</a>
+            </div>
+        </div>
+
+        <!-- Results & Reports (dropdown) -->
+        <div x-data="{ openResults: false }" class="relative">
+            <button @click="openResults = !openResults" 
+                    class="w-full flex items-center justify-between px-4 py-2.5 rounded-xl transition-all duration-200 text-gray-300 hover:bg-gray-700/50 hover:text-white">
+                <div class="flex items-center">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                    </svg>
+                    <span>Results & Reports</span>
+                </div>
+                <svg class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': openResults }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+            <div x-show="openResults" 
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="transform opacity-0 -translate-y-2"
+                 x-transition:enter-end="transform opacity-100 translate-y-0"
+                 class="ml-7 mt-1 space-y-1 border-l border-gray-700/50">
+                <a href="{{ route('admin.results.class-wise') }}" class="flex items-center px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/30">Class‑wise Results</a>
+                <a href="{{ route('admin.results.student-wise') }}" class="flex items-center px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/30">Student‑wise Report</a>
+                <a href="{{ route('admin.results.department-wise') }}" class="flex items-center px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/30">Department‑wise</a>
+                <a href="{{ route('admin.exam-results.multi-group-report.form') }}" class="flex items-center px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/30">Multi‑Group Report</a>
+                <a href="{{ route('admin.results.pdf-report', ['studentId' => 0]) }}" class="flex items-center px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/30">Generate PDF Report Cards</a>
+            </div>
+        </div>
+
+        <!-- Grade Scales -->
+        <a href="{{ route('admin.grade-scales.index') }}" 
+           class="flex items-center px-4 py-2.5 rounded-xl transition-all duration-200 {{ request()->routeIs('admin.grade-scales.*') ? 'bg-indigo-600 shadow-md text-white' : 'text-gray-300 hover:bg-gray-700/50 hover:text-white' }}">
+            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+            </svg>
+            Grade Scales
+        </a>
 
         <!-- ========== CURRICULUM ========== -->
         <div class="pt-3 mt-2 border-t border-gray-700/30">
@@ -289,6 +325,14 @@
             Student Attendance
         </a>
 
+
+  <a href="{{ route('admin.studentattendance.report') }}" 
+           class="flex items-center px-4 py-2.5 rounded-xl transition-all duration-200 {{ request()->routeIs('admin.studentattendance.*') ? 'bg-indigo-600 shadow-md text-white' : 'text-gray-300 hover:bg-gray-700/50 hover:text-white' }}">
+            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            Student Attendance Report
+        </a>
         <a href="{{ route('admin.timetable.index') }}" 
            class="flex items-center px-4 py-2.5 rounded-xl transition-all duration-200 {{ request()->routeIs('admin.timetable.*') ? 'bg-indigo-600 shadow-md text-white' : 'text-gray-300 hover:bg-gray-700/50 hover:text-white' }}">
             <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

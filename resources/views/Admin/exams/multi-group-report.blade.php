@@ -6,7 +6,7 @@
         <div class="px-6 py-4 bg-gradient-to-r from-purple-600 to-indigo-700">
             <h2 class="text-2xl font-bold text-white">Academic Multi Group Report</h2>
         </div>
-        <form method="POST" action="{{ route('admin.exam-results.multi-group-report.generate') }}" class="p-6 space-y-5">
+        <form method="POST" action="{{ route('admin.exam-results.multi-group-report') }}" class="p-6 space-y-5">
             @csrf
             <div>
                 <label class="block font-medium">Select Student</label>

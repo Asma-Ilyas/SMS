@@ -12,71 +12,124 @@ class AttendanceCheckController extends Controller
 {
     public function showCheckinForm()
     {
-        $employees = Staff::orderBy('first_name')->orderBy('last_name')->get();
+        $employees = Staff::with('category')->orderBy('first_name')->orderBy('last_name')->get();
         return view('admin.attendance.check', compact('employees'));
     }
 
+    // ------------------------------------------------------------------
+    // CHECK‑IN
+    // ------------------------------------------------------------------
     public function checkin(Request $request)
     {
         $request->validate([
             'employee_id' => 'required|exists:staff,id',
         ]);
 
-        $employeeId = $request->employee_id;
+        $employee = Staff::with('category')->find($request->employee_id);
         $today = Carbon::today();
+        $now = Carbon::now();
 
-        $attendance = Attendance::firstOrCreate(
-            [
-                'employee_id' => $employeeId,
-                'date'        => $today,
-            ],
-            [
-                'status'      => 'present',
-                'check_in'    => Carbon::now()->toTimeString(),
-                'check_out'   => null,
-                'remarks'     => 'Auto check-in',
-            ]
-        );
+        // Check if already checked in today
+        $attendance = Attendance::where('staff_id', $employee->id)
+            ->whereDate('date', $today)
+            ->first();
 
-        if ($attendance->wasRecentlyCreated) {
-            return back()->with('success', 'Checked in at ' . $attendance->check_in);
-        }
-
-        if ($attendance->check_in && is_null($attendance->check_out)) {
-            return back()->with('error', 'Already checked in today. Please check out.');
-        }
-
-        if ($attendance->check_out) {
+        if ($attendance && $attendance->check_out) {
             return back()->with('error', 'Already completed attendance for today.');
         }
 
-        return back()->with('error', 'Unable to mark attendance.');
+        if ($attendance && $attendance->check_in && is_null($attendance->check_out)) {
+            return back()->with('error', 'Already checked in today. Please check out first.');
+        }
+
+        // Determine status based on arrival time vs category default arrival
+        $categoryArrival = $employee->category?->arrival_time;
+        $status = 'present';
+        $remarks = 'Auto check‑in';
+
+        if ($categoryArrival) {
+            $arrivalTime = Carbon::parse($categoryArrival);
+            if ($now->gt($arrivalTime)) {
+                $lateMinutes = $now->diffInMinutes($arrivalTime);
+                $status = 'late';
+                $remarks = "Late by {$lateMinutes} minutes (arrived at {$now->format('H:i')})";
+            }
+        }
+
+        // Create or update attendance record
+        $attendance = Attendance::updateOrCreate(
+            [
+                'staff_id' => $employee->id,
+                'date'     => $today,
+            ],
+            [
+                'check_in'   => $now->toTimeString(),
+                'status'     => $status,
+                'remarks'    => $remarks,
+                'check_out'  => null,
+            ]
+        );
+
+        return back()->with('success', "Checked in at {$attendance->check_in} – Status: " . ucfirst($status));
     }
 
+    // ------------------------------------------------------------------
+    // CHECK‑OUT
+    // ------------------------------------------------------------------
     public function checkout(Request $request)
     {
         $request->validate([
             'employee_id' => 'required|exists:staff,id',
         ]);
 
-        $employeeId = $request->employee_id;
+        $employee = Staff::with('category')->find($request->employee_id);
         $today = Carbon::today();
+        $now = Carbon::now();
 
-        $attendance = Attendance::where('employee_id', $employeeId)
+        $attendance = Attendance::where('staff_id', $employee->id)
             ->whereDate('date', $today)
             ->first();
 
         if (!$attendance) {
-            return back()->with('error', 'No check-in found for today. Please check in first.');
+            return back()->with('error', 'No check‑in found for today. Please check in first.');
         }
 
         if ($attendance->check_out) {
             return back()->with('error', 'Already checked out today.');
         }
 
-        $attendance->check_out = Carbon::now()->toTimeString();
-        $attendance->save();
+        // Get check‑in time
+        $checkIn = Carbon::parse($attendance->check_in);
+        $workMinutes = $checkIn->diffInMinutes($now);
 
-        return back()->with('success', 'Checked out at ' . $attendance->check_out);
+        // Determine final status (if not already finalised)
+        $finalStatus = $attendance->status; // 'late' or 'present' from check‑in
+        $remarks = $attendance->remarks . '; ';
+
+        // Half‑day rule: less than 4 hours (240 minutes) of work
+        if ($workMinutes < 240) {
+            $finalStatus = 'half‑day';
+            $remarks .= "Worked only {$workMinutes} minutes (half day).";
+        } elseif ($workMinutes >= 480) {
+            $remarks .= "Full day work ({$workMinutes} minutes).";
+        } else {
+            $remarks .= "Worked {$workMinutes} minutes.";
+        }
+
+        // Check against category departure time (optional)
+        $categoryDeparture = $employee->category?->departure_time;
+        if ($categoryDeparture && $now->lt(Carbon::parse($categoryDeparture))) {
+            $remarks .= " Left early (expected departure at {$categoryDeparture}).";
+        } elseif ($categoryDeparture && $now->gt(Carbon::parse($categoryDeparture))) {
+            $remarks .= " Overtime (stayed beyond {$categoryDeparture}).";
+        }
+
+        $attendance->update([
+            'check_out' => $now->toTimeString(),
+            'status'    => $finalStatus,
+            'remarks'   => trim($remarks),
+        ]);
+
+        return back()->with('success', "Checked out at {$attendance->check_out} – Final status: " . ucfirst($finalStatus));
     }
 }

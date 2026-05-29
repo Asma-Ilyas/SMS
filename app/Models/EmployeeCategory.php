@@ -11,14 +11,23 @@ class EmployeeCategory extends Model
 
     protected $table = 'employee_categories';
 
-    protected $fillable = ['name', 'code', 'description', 'is_active'];
+    protected $fillable = [
+        'name',
+        'code',
+        'description',
+        'arrival_time',
+        'departure_time',
+        'is_active'
+    ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'arrival_time' => 'string',
+        'departure_time' => 'string',
     ];
 
     public function employees()
     {
-        return $this->hasMany(Employee::class);
+        return $this->hasMany(Employee::class); // adjust model name if needed (Staff/Employee)
     }
 }

@@ -133,4 +133,8 @@ public function marks()
 {
     return $this->hasMany(ExamMark::class, 'student_id');
 }
+public function results()
+{
+    return $this->hasMany(ExamResult::class);
+}
 }

@@ -73,6 +73,9 @@ return new class extends Migration
             $table->unsignedBigInteger('created_by')->nullable();
             $table->unsignedBigInteger('updated_by')->nullable();
 
+
+             $table->integer('max_periods_per_day')->default(6);
+            $table->integer('max_periods_per_week')->default(30);
             $table->timestamps();
             $table->softDeletes();
     

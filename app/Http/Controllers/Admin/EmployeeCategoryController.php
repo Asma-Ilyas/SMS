@@ -22,10 +22,12 @@ class EmployeeCategoryController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'name'        => 'required|string|max:255|unique:employee_categories',
-            'code'        => 'nullable|string|max:50|unique:employee_categories',
-            'description' => 'nullable|string',
-            'is_active'   => 'sometimes|boolean',
+            'name'           => 'required|string|max:255|unique:employee_categories',
+            'code'           => 'nullable|string|max:50|unique:employee_categories',
+            'description'    => 'nullable|string',
+            'arrival_time'   => 'nullable|date_format:H:i',
+            'departure_time' => 'nullable|date_format:H:i',
+            'is_active'      => 'sometimes|boolean',
         ]);
 
         EmployeeCategory::create($validated);
@@ -41,10 +43,12 @@ class EmployeeCategoryController extends Controller
     public function update(Request $request, EmployeeCategory $employeeCategory)
     {
         $validated = $request->validate([
-            'name'        => 'required|string|max:255|unique:employee_categories,name,' . $employeeCategory->id,
-            'code'        => 'nullable|string|max:50|unique:employee_categories,code,' . $employeeCategory->id,
-            'description' => 'nullable|string',
-            'is_active'   => 'sometimes|boolean',
+            'name'           => 'required|string|max:255|unique:employee_categories,name,' . $employeeCategory->id,
+            'code'           => 'nullable|string|max:50|unique:employee_categories,code,' . $employeeCategory->id,
+            'description'    => 'nullable|string',
+            'arrival_time'   => 'nullable|date_format:H:i',
+            'departure_time' => 'nullable|date_format:H:i',
+            'is_active'      => 'sometimes|boolean',
         ]);
 
         $employeeCategory->update($validated);
@@ -54,7 +58,6 @@ class EmployeeCategoryController extends Controller
 
     public function destroy(EmployeeCategory $employeeCategory)
     {
-        // Prevent deletion if it has employees
         if ($employeeCategory->employees()->count() > 0) {
             return back()->with('error', 'Cannot delete category with assigned employees.');
         }

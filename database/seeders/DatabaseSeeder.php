@@ -182,6 +182,18 @@ class DatabaseSeeder extends Seeder
         ['name' => 'Economics',   'code' => 'ECO101',  'is_active' => true],
     ];
 
+    // ---------- GRADE SCALES ----------
+  // ---------- GRADE SCALES ----------
+public static $GRADE_SCALES = [
+    [
+        'name' => 'Default',
+        'grades' => '[{"min":90,"max":100,"grade":"A+"},{"min":80,"max":89,"grade":"A"},{"min":70,"max":79,"grade":"B+"},{"min":60,"max":69,"grade":"B"},{"min":50,"max":59,"grade":"C"},{"min":40,"max":49,"grade":"D"},{"min":0,"max":39,"grade":"F"}]',
+        'is_default' => true,
+        'created_at' => null,
+        'updated_at' => null,
+    ],
+];
+
     // ------------------------------------------------------------------
     // Student-related static arrays (filled by initStaticData)
     // ------------------------------------------------------------------
@@ -585,7 +597,109 @@ class DatabaseSeeder extends Seeder
     }
 
     // ------------------------------------------------------------------
-    // Subject Assignment, Timetable & Student Attendance (NON-STATIC)
+    // Grade Scales Seeding
+    // ------------------------------------------------------------------
+    protected function seedGradeScales()
+    {
+        if (DB::table('grade_scales')->count() == 0) {
+            foreach (self::$GRADE_SCALES as $scale) {
+                DB::table('grade_scales')->insert([
+                    'name' => $scale['name'],
+                    'grades' => $scale['grades'],
+                    'is_default' => $scale['is_default'],
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Exam Results Seeding (aggregated)
+    // ------------------------------------------------------------------
+    protected function seedExamResults()
+    {
+        $exams = DB::table('exams')->get();
+        $students = DB::table('students')->get();
+        $gradeScale = DB::table('grade_scales')->where('is_default', true)->first();
+        $gradeScaleData = $gradeScale ? json_decode($gradeScale->grades, true) : [];
+
+        $getGrade = function($percentage) use ($gradeScaleData) {
+            foreach ($gradeScaleData as $range) {
+                if ($percentage >= $range['min'] && $percentage <= $range['max']) {
+                    return $range['grade'];
+                }
+            }
+            return 'F';
+        };
+
+        DB::table('exam_results')->truncate();
+
+        foreach ($exams as $exam) {
+            $marks = DB::table('exam_marks')
+                ->where('exam_id', $exam->id)
+                ->get()
+                ->groupBy('student_id');
+
+            $studentResults = [];
+            foreach ($marks as $studentId => $studentMarks) {
+                $totalObtained = $studentMarks->sum('marks_obtained');
+                $totalMax = $studentMarks->sum('max_marks');
+                $percentage = $totalMax > 0 ? round(($totalObtained / $totalMax) * 100, 2) : 0;
+                $grade = $getGrade($percentage);
+                $remarks = $percentage >= 40 ? 'Pass' : 'Fail';
+
+                $student = $students->where('id', $studentId)->first();
+                if (!$student) continue;
+
+                $studentResults[] = [
+                    'exam_id' => $exam->id,
+                    'student_id' => $studentId,
+                    'class_id' => $student->class_id,
+                    'section_id' => $student->section_id ?? null,
+                    'total_marks' => $totalObtained,
+                    'total_max_marks' => $totalMax,
+                    'percentage' => $percentage,
+                    'grade' => $grade,
+                    'remarks' => $remarks,
+                    'rank_in_class' => null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+            }
+
+            if (!empty($studentResults)) {
+                DB::table('exam_results')->insert($studentResults);
+            }
+
+            // Calculate ranks per class
+            $classGroups = DB::table('exam_results')
+                ->where('exam_id', $exam->id)
+                ->orderBy('percentage', 'desc')
+                ->get()
+                ->groupBy('class_id');
+
+            foreach ($classGroups as $classId => $classResults) {
+                $rank = 1;
+                $prevPercentage = null;
+                foreach ($classResults as $index => $result) {
+                    if ($prevPercentage !== null && $result->percentage < $prevPercentage) {
+                        $rank = $index + 1;
+                    }
+                    DB::table('exam_results')
+                        ->where('exam_id', $exam->id)
+                        ->where('student_id', $result->student_id)
+                        ->update(['rank_in_class' => $rank]);
+                    $prevPercentage = $result->percentage;
+                }
+            }
+        }
+
+        $this->command->info('Exam results seeded with ranks.');
+    }
+
+    // ------------------------------------------------------------------
+    // Subject Assignment, Timetable & Student Attendance
     // ------------------------------------------------------------------
     protected function seedSubjectAssignments()
     {
@@ -633,7 +747,7 @@ class DatabaseSeeder extends Seeder
         }
 
         $timetables = [];
-        $days = range(1, 6); // Monday to Friday
+        $days = range(1, 6); // Monday to Saturday
         $periods = range(1, 6); // 6 periods per day
 
         foreach ($assignments as $classId => $subjectsList) {
@@ -750,7 +864,8 @@ class DatabaseSeeder extends Seeder
             'banks', 'discounts', 'fee_submission_types', 'fee_types',
             'employee_categories', 'staff', 'attendances', 'leaves', 'salaries',
             'exam_types', 'exam_groups', 'exams', 'exam_marks', 'subjects',
-            'class_subject_teacher', 'time_tables', 'student_attendance'
+            'class_subject_teacher', 'time_tables', 'student_attendance',
+            'grade_scales', 'exam_results'   // added these two
         ];
 
         foreach ($tables as $table) {
@@ -792,6 +907,12 @@ class DatabaseSeeder extends Seeder
         // Exams and marks
         $this->generateExamsAndMarks();
 
+        // Grade scales
+        $this->seedGradeScales();
+
+        // Exam results (aggregated)
+        $this->seedExamResults();
+
         // Subject assignments (section-wise distribution)
         $this->seedSubjectAssignments();
 
@@ -806,6 +927,6 @@ class DatabaseSeeder extends Seeder
         $this->command->info('All data seeded successfully: ' 
             . count(self::$STUDENTS) . ' students, '
             . count($staffData) . ' staff members, '
-            . count(self::$SUBJECTS) . ' subjects, and related assignments.');
+            . count(self::$SUBJECTS) . ' subjects, and related assignments, exams, and results.');
     }
 }

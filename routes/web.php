@@ -36,6 +36,9 @@ use App\Http\Controllers\Admin\ExamTypeController;
 use App\Http\Controllers\Admin\StudentAttendanceController;
 use App\Http\Controllers\Admin\TimeTableController;
 use App\Http\Controllers\Admin\ClassSubjectController;
+use App\Http\Controllers\Admin\ExamMarkController;
+use App\Http\Controllers\Admin\ResultController;
+use App\Http\Controllers\Admin\GradeScaleController;
 
 /*
 |--------------------------------------------------------------------------
@@ -190,14 +193,14 @@ Route::prefix('admin')->name('admin.')->group(function () {
     Route::get('/exams/{exam}/class-section-marksheet/{class?}/{section?}', [ExamResultController::class, 'classSectionMarksheet'])
         ->name('pdf.class-section-marksheet');
 
-    // ========== STUDENT ATTENDANCE (first period only) ==========
-    Route::prefix('studentattendance')->name('studentattendance.')->group(function () {
-        Route::get('/', [StudentAttendanceController::class, 'index'])->name('index');
-        Route::get('/mark', [StudentAttendanceController::class, 'create'])->name('create');
-        Route::post('/store', [StudentAttendanceController::class, 'store'])->name('store');
-    });
+    // ========== STUDENT ATTENDANCE ==========
+    Route::get('/studentattendance', [StudentAttendanceController::class, 'index'])->name('studentattendance.index');
+    Route::get('/studentattendance/create', [StudentAttendanceController::class, 'create'])->name('studentattendance.create');
+    Route::post('/studentattendance/store', [StudentAttendanceController::class, 'store'])->name('studentattendance.store');
+    Route::get('/studentattendance/report', [StudentAttendanceController::class, 'report'])->name('studentattendance.report');
+    Route::get('/studentattendance/student/{student_id}', [StudentAttendanceController::class, 'studentReport'])->name('studentattendance.student');
 
-    // ========== TIME TABLE MANAGEMENT ==========
+    // ========== TIME TABLE ==========
     Route::prefix('timetable')->name('timetable.')->group(function () {
         Route::get('/', [TimeTableController::class, 'index'])->name('index');
         Route::get('/create', [TimeTableController::class, 'create'])->name('create');
@@ -206,8 +209,32 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::put('/{timetable}', [TimeTableController::class, 'update'])->name('update');
         Route::delete('/{timetable}', [TimeTableController::class, 'destroy'])->name('destroy');
     });
+
+    // ========== SECTION-WISE SUBJECTS ==========
     Route::resource('class-subject', ClassSubjectController::class);
-});
+
+    // ========== EXAM MARKS (NEW) ==========
+    Route::prefix('exam-marks')->name('exam-marks.')->group(function () {
+        Route::get('/', [ExamMarkController::class, 'index'])->name('index');
+        Route::get('/create', [ExamMarkController::class, 'create'])->name('create');
+        Route::post('/store', [ExamMarkController::class, 'store'])->name('store');
+        Route::get('/bulk-upload', [ExamMarkController::class, 'bulkUploadForm'])->name('bulk-upload');
+        Route::post('/bulk-upload', [ExamMarkController::class, 'bulkUploadStore'])->name('bulk-upload.store');
+    });
+
+    // ========== RESULTS (NEW) ==========
+    Route::prefix('results')->name('results.')->group(function () {
+        Route::get('/class-wise', [ResultController::class, 'classWise'])->name('class-wise');
+        Route::get('/student-wise', [ResultController::class, 'studentWise'])->name('student-wise');
+        Route::get('/department-wise', [ResultController::class, 'departmentWise'])->name('department-wise');
+        Route::get('/pdf-report/{studentId}/{examId?}', [ResultController::class, 'pdfReportCard'])->name('pdf-report');
+        Route::post('/recalc/{examId}', [ResultController::class, 'recalcExam'])->name('recalc');
+    });
+
+    // ========== GRADE SCALES ==========
+    Route::resource('grade-scales', GradeScaleController::class);
+
+}); // <-- CLOSES THE ADMIN GROUP – DO NOT MOVE OR DELETE
 
 /*
 |--------------------------------------------------------------------------

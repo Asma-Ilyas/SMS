@@ -12,10 +12,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('employee_categories', function (Blueprint $table) {
-               $table->id();
+            $table->id();
             $table->string('name')->unique();
             $table->string('code')->unique()->nullable();
             $table->text('description')->nullable();
+            $table->time('arrival_time')->nullable();     // default expected arrival time for this category
+            $table->time('departure_time')->nullable();   // default expected departure time for this category
             $table->boolean('is_active')->default(true);
             $table->timestamps();
         });

@@ -74,4 +74,9 @@ class Exam extends Model
     {
         return $this->end_date ? $this->end_date->format('d-m-Y') : null;
     }
+    
+    public function results()
+{
+    return $this->hasMany(ExamResult::class);
+}
 }
