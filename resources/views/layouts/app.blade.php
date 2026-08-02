@@ -3,18 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>@yield('title', 'School Admin')</title>
+    <title>@yield('title', 'School Management System')</title>
+    
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.3/dist/cdn.min.js"></script>
+    
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-100">
-    @include('layouts.navbar')      {{-- your top navigation --}}
+<body>
     <div class="flex">
-        @include('layouts.sidebar')  {{-- your side menu --}}
-        <main class="flex-1 p-6">
-            @yield('content')
-        </main>
+        <!-- Sidebar -->
+        @include('layouts.sidebar')
+        
+        <!-- Main Content -->
+        <div class="flex-1 min-w-0 bg-gray-50">
+            <!-- Navbar -->
+            @include('layouts.navbar')
+            
+            <!-- Page Content -->
+            <main class="p-6">
+                @yield('content')
+            </main>
+        </div>
     </div>
-    @include('components.side-panel') {{-- keep this if needed --}}
-    @stack('scripts')
 </body>
 </html>

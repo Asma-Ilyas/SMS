@@ -12,6 +12,15 @@ return [
     | other UI elements where an application name needs to be displayed.
     |
     */
+'providers' => [
+    // ...
+    Barryvdh\DomPDF\ServiceProvider::class,
+],
+
+'aliases' => [
+    // ...
+    'PDF' => Barryvdh\DomPDF\Facade\Pdf::class,
+],
 
     'name' => env('APP_NAME', 'Laravel'),
 

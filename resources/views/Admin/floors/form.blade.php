@@ -1,0 +1,128 @@
+@extends('layouts.app')
+@section('title', isset($floor) ? 'Edit Floor' : 'Add Floor')
+
+@section('content')
+<div class="py-8 px-4 sm:px-6 lg:px-8">
+    {{-- Header with back button --}}
+    <div class="flex flex-wrap justify-between items-center gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900 tracking-tight">
+                {{ isset($floor) ? 'Edit Floor' : 'Add New Floor' }}
+            </h1>
+            <p class="text-gray-500 text-sm mt-1">Floors can be attached to blocks for better room organization.</p>
+        </div>
+        <a href="{{ route('admin.floors.index') }}" 
+           class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm transition">
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+            Back to Floors
+        </a>
+    </div>
+
+    {{-- Error messages --}}
+    @if($errors->any())
+        <div class="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl">
+            <div class="flex items-start gap-3">
+                <svg class="w-5 h-5 text-red-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/></svg>
+                <div class="flex-1">
+                    <p class="text-sm font-medium text-red-800">Please fix the following errors:</p>
+                    <ul class="mt-2 list-disc list-inside text-sm text-red-700">
+                        @foreach($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Form Card --}}
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        <form method="POST" action="{{ isset($floor) ? route('admin.floors.update', $floor) : route('admin.floors.store') }}">
+            @csrf
+            @if(isset($floor)) @method('PUT') @endif
+
+            <div class="p-6 space-y-6">
+                {{-- Name field --}}
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Floor Name <span class="text-red-500">*</span>
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                        </div>
+                        <input type="text" name="name" value="{{ old('name', $floor->name ?? '') }}" 
+                               class="pl-10 w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500" 
+                               placeholder="e.g., Ground Floor, First Floor" required>
+                    </div>
+                </div>
+
+                {{-- Code field --}}
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Code <span class="text-gray-400 text-xs">(optional)</span>
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+                        </div>
+                        <input type="text" name="code" value="{{ old('code', $floor->code ?? '') }}" 
+                               class="pl-10 w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                               placeholder="e.g., G, 1, 2">
+                    </div>
+                    <p class="mt-1 text-xs text-gray-500">Short identifier for the floor (e.g., 'G' for ground, '1' for first).</p>
+                </div>
+
+                {{-- Level field --}}
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Level <span class="text-red-500">*</span>
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                        </div>
+                        <input type="number" name="level" value="{{ old('level', $floor->level ?? 0) }}" 
+                               class="pl-10 w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                               placeholder="0 for ground, 1 for first, etc." required>
+                    </div>
+                    <p class="mt-1 text-xs text-gray-500">Numeric level (0 = ground, 1 = first floor, -1 = basement, etc.).</p>
+                </div>
+
+                {{-- Block selection --}}
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Block <span class="text-gray-400 text-xs">(optional)</span>
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                        </div>
+                        <select name="block_id" class="pl-10 w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                            <option value="">-- No Block --</option>
+                            @foreach($blocks as $block)
+                                <option value="{{ $block->id }}" {{ old('block_id', $floor->block_id ?? '') == $block->id ? 'selected' : '' }}>
+                                    {{ $block->name }} ({{ $block->code }})
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            {{-- Form actions --}}
+            <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+                <a href="{{ route('admin.floors.index') }}" 
+                   class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm transition">
+                    Cancel
+                </a>
+                <button type="submit" 
+                        class="inline-flex items-center px-4 py-2 bg-indigo-600 border border-transparent rounded-lg text-sm font-medium text-white hover:bg-indigo-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                    {{ isset($floor) ? 'Update Floor' : 'Create Floor' }}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+@endsection

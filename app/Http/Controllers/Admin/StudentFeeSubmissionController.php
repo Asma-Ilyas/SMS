@@ -6,7 +6,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Student;
 use App\Models\FeeType;
-use App\Models\Classes;
+use App\Models\ClassSection;
 use App\Models\StudentFeeSubmission;
 use Illuminate\Http\Request;
 
@@ -20,16 +20,14 @@ class StudentFeeSubmissionController extends Controller
 
     public function create()
     {
-        $classes = Classes::with('grade')->get();
+        $classSections = ClassSection::with('class.grade')->orderBy('class_id')->orderBy('section_name')->get();
         $feeTypes = FeeType::where('is_active', true)->get();
-        return view('admin.fees.submission-create', compact('classes', 'feeTypes'));
+        return view('admin.fees.submission-create', compact('classSections', 'feeTypes'));
     }
 
     public function store(Request $request)
     {
         $request->validate([
-            'class_id'          => 'required|exists:classes,id',
-            'section'           => 'required|string',
             'student_id'        => 'required|exists:students,id',
             'fee_type_id'       => 'required|exists:fee_types,id',
             'period'            => 'required|in:monthly,quarterly,annually,one_time',
@@ -60,17 +58,15 @@ class StudentFeeSubmissionController extends Controller
 
     public function edit(StudentFeeSubmission $feeSubmission)
     {
-        $classes = Classes::with('grade')->get();
+        $classSections = ClassSection::with('class.grade')->orderBy('class_id')->orderBy('section_name')->get();
         $feeTypes = FeeType::where('is_active', true)->get();
         $selectedStudent = $feeSubmission->student;
-        return view('admin.fees.submission-edit', compact('feeSubmission', 'classes', 'feeTypes', 'selectedStudent'));
+        return view('admin.fees.submission-edit', compact('feeSubmission', 'classSections', 'feeTypes', 'selectedStudent'));
     }
 
     public function update(Request $request, StudentFeeSubmission $feeSubmission)
     {
         $request->validate([
-            'class_id'          => 'required|exists:classes,id',
-            'section'           => 'required|string',
             'student_id'        => 'required|exists:students,id',
             'fee_type_id'       => 'required|exists:fee_types,id',
             'period'            => 'required|in:monthly,quarterly,annually,one_time',

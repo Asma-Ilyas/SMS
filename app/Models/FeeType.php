@@ -1,23 +1,21 @@
 <?php
-// app/Models/FeeType.php
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class FeeType extends Model
 {
-    use HasFactory;
-
     protected $fillable = ['name', 'description', 'is_active'];
-
-    protected $casts = [
-        'is_active' => 'boolean',
-    ];
+    protected $casts = ['is_active' => 'boolean'];
 
     public function feeSubmissions()
     {
         return $this->hasMany(StudentFeeSubmission::class);
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
     }
 }

@@ -1,10 +1,10 @@
 <?php
+// app/Models/Exam.php
 
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Carbon\Carbon;
 
 class Exam extends Model
 {
@@ -13,20 +13,20 @@ class Exam extends Model
     protected $fillable = [
         'exam_type_id',
         'exam_group_id',
-        'class_id',
+        'class_section_id',
         'name',
-        'exam_center',
         'start_date',
         'end_date',
-        'time_table',
         'description',
         'is_published',
+        'passing_percentage',
     ];
 
     protected $casts = [
-        'start_date'   => 'date',
-        'end_date'     => 'date',
+        'start_date' => 'date',
+        'end_date' => 'date',
         'is_published' => 'boolean',
+        'passing_percentage' => 'decimal:2',
     ];
 
     public function examType()
@@ -39,9 +39,9 @@ class Exam extends Model
         return $this->belongsTo(ExamGroup::class);
     }
 
-    public function class()
+    public function classSection()
     {
-        return $this->belongsTo(Classes::class, 'class_id');
+        return $this->belongsTo(ClassSection::class);
     }
 
     public function marks()
@@ -49,34 +49,38 @@ class Exam extends Model
         return $this->hasMany(ExamMark::class);
     }
 
-   public function subjects()
-{
-    return Subject::whereHas('classes', function ($query) {
-        $query->where('class_id', $this->class_id);
-    })->get();
-}
-
-    public function students()
-{
-    return Student::where('class_id', $this->class_id)
-        ->orderBy('first_name')
-        ->orderBy('last_name')
-        ->get();
-}
-
-    // Accessor for formatted start date
-    public function getFormattedStartDateAttribute()
-    {
-        return $this->start_date ? $this->start_date->format('d-m-Y') : null;
-    }
-
-    public function getFormattedEndDateAttribute()
-    {
-        return $this->end_date ? $this->end_date->format('d-m-Y') : null;
-    }
-    
     public function results()
-{
-    return $this->hasMany(ExamResult::class);
-}
+    {
+        return $this->hasMany(ExamResult::class);
+    }
+
+    public function subjectMarks()
+    {
+        return $this->hasMany(ExamSubjectMark::class);
+    }
+
+    public function subjectSchedules()
+    {
+        return $this->hasMany(ExamSubjectSchedule::class)->orderBy('sort_order');
+    }
+
+    public function getTotalStudentsAttribute()
+    {
+        return Student::where('class_section_id', $this->class_section_id)->count();
+    }
+
+    public function getTotalMarksAttribute()
+    {
+        return $this->marks()->sum('marks_obtained');
+    }
+
+    public function getMaxMarksAttribute()
+    {
+        return $this->marks()->sum('max_marks');
+    }
+
+    public function getPassingMarksAttribute()
+    {
+        return ($this->total_marks * $this->passing_percentage) / 100;
+    }
 }

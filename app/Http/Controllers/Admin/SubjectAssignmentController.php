@@ -3,118 +3,311 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\ClassSection;
 use App\Models\Classes;
 use App\Models\Subject;
 use App\Models\Staff;
-use App\Models\AcademicSession;
+use App\Models\SubjectAssignment;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class SubjectAssignmentController extends Controller
 {
     /**
-     * Display a listing of all assignments.
+     * Display a listing of subject assignments
      */
-    public function index()
+    public function index(Request $request)
     {
-        // Use Eloquent relationships to avoid column errors
-        $assignments = DB::table('class_subject_teacher')
-            ->select(
-                'class_subject_teacher.*',
-                'class_subject_teacher.id as assignment_id',
-                'classes.id as class_id',
-                'subjects.id as subject_id',
-                'staff.id as teacher_id',
-                'subjects.name as subject_name',
-                'staff.first_name',
-                'staff.last_name',
-                'academic_sessions.name as session_name'
-            )
-            ->join('classes', 'class_subject_teacher.class_id', '=', 'classes.id')
-            ->join('subjects', 'class_subject_teacher.subject_id', '=', 'subjects.id')
-            ->join('staff', 'class_subject_teacher.teacher_id', '=', 'staff.id')
-            ->leftJoin('academic_sessions', 'class_subject_teacher.academic_session_id', '=', 'academic_sessions.id')
-            ->get();
+        $query = SubjectAssignment::with(['classSection', 'subject', 'teacher']);
 
-        // Load class models to get the full_name accessor
-        $classes = Classes::with(['grade', 'stream'])->get()->keyBy('id');
-        foreach ($assignments as $assignment) {
-            $class = $classes->get($assignment->class_id);
-            $assignment->class_name = $class ? $class->full_name : 'Class #' . $assignment->class_id;
+        if ($request->filled('class_section_id')) {
+            $query->where('class_section_id', $request->class_section_id);
         }
 
-        return view('admin.subject-assignments.index', compact('assignments'));
+        if ($request->filled('subject_id')) {
+            $query->where('subject_id', $request->subject_id);
+        }
+
+        $assignments = $query->orderBy('class_section_id')->paginate(20);
+        $classes = Classes::with(['grade', 'stream', 'sections'])->get();
+        $classSections = ClassSection::with('class.grade', 'class.stream')->get();
+        $subjects = Subject::all();
+
+        return view('admin.subject-assignments.index', compact('assignments', 'classes', 'classSections', 'subjects'));
     }
 
     /**
-     * Show the form for creating a new assignment.
+     * Show the form for creating a new subject assignment
      */
-    public function create()
+    public function create(Request $request)
     {
-        $classes = Classes::all();
-        $subjects = Subject::where('is_active', true)->get();
-        $teachers = Staff::where('is_active', true)->get();
-        $sessions = AcademicSession::orderBy('start_date', 'desc')->get();
+        $classes = Classes::with(['grade', 'stream', 'sections'])->get();
+        
+        $selectedClass = null;
+        $sections = collect();
+        
+        if ($request->has('class_id') && $request->class_id) {
+            $selectedClass = Classes::with(['grade', 'stream', 'sections'])->find($request->class_id);
+            if ($selectedClass) {
+                $sections = $selectedClass->sections;
+            }
+        }
+        
+        $selectedSection = null;
+        if ($request->has('class_section_id') && $request->class_section_id) {
+            $selectedSection = ClassSection::with('class.grade', 'class.stream')->find($request->class_section_id);
+        }
+        
+        $subjects = Subject::all();
+        $teachers = Staff::where('is_teacher', true)->get();
 
-        return view('admin.subject-assignments.create', compact('classes', 'subjects', 'teachers', 'sessions'));
+        return view('admin.subject-assignments.create', compact(
+            'classes', 'sections', 'selectedClass', 'selectedSection', 'subjects', 'teachers'
+        ));
     }
 
     /**
-     * Store a newly created assignment in storage.
+     * Store a newly created subject assignment
      */
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'class_id' => 'required|exists:classes,id',
+        $request->validate([
+            'class_section_id' => 'required|exists:class_sections,id',
             'subject_id' => 'required|exists:subjects,id',
-            'teacher_id' => 'required|exists:staff,id',
-            'academic_session_id' => 'nullable|exists:academic_sessions,id',
-            'max_weekly_periods' => 'nullable|integer|min:0',
-            'term' => 'required|in:first,second,third,full_year',
-            'notes' => 'nullable|string',
+            'teacher_id' => 'nullable|exists:staff,id',
+            'weekly_frequency' => 'nullable|integer|min:1|max:10',
+            'is_elective' => 'boolean',
         ]);
 
-        // Prevent duplicate assignments
-        $exists = DB::table('class_subject_teacher')
-            ->where('class_id', $validated['class_id'])
-            ->where('subject_id', $validated['subject_id'])
-            ->where('teacher_id', $validated['teacher_id'])
-            ->where('academic_session_id', $validated['academic_session_id'])
-            ->where('term', $validated['term'])
+        $exists = SubjectAssignment::where('class_section_id', $request->class_section_id)
+            ->where('subject_id', $request->subject_id)
             ->exists();
 
         if ($exists) {
-            return back()->withErrors(['error' => 'This assignment already exists.'])->withInput();
+            return back()->with('error', 'This subject is already assigned to this section.')
+                ->withInput();
         }
 
-        DB::table('class_subject_teacher')->insert([
-            'class_id' => $validated['class_id'],
-            'subject_id' => $validated['subject_id'],
-            'teacher_id' => $validated['teacher_id'],
-            'academic_session_id' => $validated['academic_session_id'],
-            'max_weekly_periods' => $validated['max_weekly_periods'] ?? 0,
-            'term' => $validated['term'],
-            'notes' => $validated['notes'],
-            'created_at' => now(),
-            'updated_at' => now(),
+        SubjectAssignment::create([
+            'class_section_id' => $request->class_section_id,
+            'subject_id' => $request->subject_id,
+            'teacher_id' => $request->teacher_id,
+            'weekly_frequency' => $request->weekly_frequency ?? 5,
+            'is_elective' => $request->is_elective ?? false,
+            'is_active' => true,
         ]);
 
         return redirect()->route('admin.subject-assignments.index')
-            ->with('success', 'Subject assigned to teacher and class successfully.');
+            ->with('success', 'Subject assigned successfully.');
     }
 
     /**
-     * Remove the specified assignment from storage.
+     * Show the form for editing a subject assignment
+     */
+    public function edit($id)
+    {
+        $assignment = SubjectAssignment::with(['classSection', 'subject', 'teacher'])->findOrFail($id);
+        $classes = Classes::with(['grade', 'stream', 'sections'])->get();
+        $subjects = Subject::all();
+        $teachers = Staff::where('is_teacher', true)->get();
+
+        return view('admin.subject-assignments.edit', compact('assignment', 'classes', 'subjects', 'teachers'));
+    }
+
+    /**
+     * Update a subject assignment
+     */
+    public function update(Request $request, $id)
+    {
+        $assignment = SubjectAssignment::findOrFail($id);
+
+        $request->validate([
+            'class_section_id' => 'required|exists:class_sections,id',
+            'subject_id' => 'required|exists:subjects,id',
+            'teacher_id' => 'nullable|exists:staff,id',
+            'weekly_frequency' => 'nullable|integer|min:1|max:10',
+            'is_elective' => 'boolean',
+            'is_active' => 'boolean',
+        ]);
+
+        $exists = SubjectAssignment::where('class_section_id', $request->class_section_id)
+            ->where('subject_id', $request->subject_id)
+            ->where('id', '!=', $id)
+            ->exists();
+
+        if ($exists) {
+            return back()->with('error', 'This subject is already assigned to this section.')
+                ->withInput();
+        }
+
+        $assignment->update([
+            'class_section_id' => $request->class_section_id,
+            'subject_id' => $request->subject_id,
+            'teacher_id' => $request->teacher_id,
+            'weekly_frequency' => $request->weekly_frequency,
+            'is_elective' => $request->is_elective ?? false,
+            'is_active' => $request->is_active ?? true,
+        ]);
+
+        return redirect()->route('admin.subject-assignments.index')
+            ->with('success', 'Subject assignment updated successfully.');
+    }
+
+    /**
+     * Delete a subject assignment
      */
     public function destroy($id)
     {
-        $deleted = DB::table('class_subject_teacher')->where('id', $id)->delete();
+        $assignment = SubjectAssignment::findOrFail($id);
+        $assignment->delete();
 
-        if ($deleted) {
-            return redirect()->route('admin.subject-assignments.index')
-                ->with('success', 'Assignment removed successfully.');
+        return redirect()->route('admin.subject-assignments.index')
+            ->with('success', 'Subject assignment removed successfully.');
+    }
+
+    /**
+     * Show bulk assignment form - FIXED: passes $classSections
+     */
+    public function bulkAssignForm()
+    {
+        $classes = Classes::with(['grade', 'stream', 'sections'])->get();
+        $classSections = ClassSection::with(['class.grade', 'class.stream'])->get();
+        $subjects = Subject::all();
+        $teachers = Staff::where('is_teacher', true)->get();
+
+        return view('admin.subject-assignments.bulk', compact('classes', 'classSections', 'subjects', 'teachers'));
+    }
+
+    /**
+     * Process bulk assignment
+     */
+    public function bulkAssign(Request $request)
+    {
+        $request->validate([
+            'class_section_id' => 'required|exists:class_sections,id',
+            'subject_ids' => 'required|array',
+            'subject_ids.*' => 'exists:subjects,id',
+        ]);
+
+        $classSectionId = $request->class_section_id;
+        $subjectIds = $request->subject_ids;
+        $teacherId = $request->teacher_id;
+        $weeklyFrequency = $request->weekly_frequency ?? 5;
+
+        $assigned = 0;
+        $skipped = 0;
+
+        foreach ($subjectIds as $subjectId) {
+            $exists = SubjectAssignment::where('class_section_id', $classSectionId)
+                ->where('subject_id', $subjectId)
+                ->exists();
+
+            if (!$exists) {
+                SubjectAssignment::create([
+                    'class_section_id' => $classSectionId,
+                    'subject_id' => $subjectId,
+                    'teacher_id' => $teacherId,
+                    'weekly_frequency' => $weeklyFrequency,
+                    'is_elective' => false,
+                    'is_active' => true,
+                ]);
+                $assigned++;
+            } else {
+                $skipped++;
+            }
         }
 
-        return back()->withErrors(['error' => 'Assignment not found.']);
+        $message = "Bulk assignment completed: {$assigned} subjects assigned, {$skipped} already existed.";
+        return redirect()->route('admin.subject-assignments.index')
+            ->with('success', $message);
+    }
+
+    /**
+     * Get sections for a class (AJAX)
+     */
+    public function getSections($classId)
+    {
+        $sections = ClassSection::where('class_id', $classId)
+            ->with('class.grade', 'class.stream')
+            ->get()
+            ->map(function($section) {
+                return [
+                    'id' => $section->id,
+                    'name' => $section->section_name,
+                    'full_name' => $section->full_name,
+                ];
+            });
+        
+        return response()->json($sections);
+    }
+
+    /**
+     * Get subjects for a section (AJAX)
+     */
+    public function getSubjectsBySection($sectionId)
+    {
+        try {
+            $section = ClassSection::find($sectionId);
+            if (!$section) {
+                return response()->json([
+                    'error' => 'Section not found',
+                    'section_id' => $sectionId
+                ], 404);
+            }
+
+            $assignments = SubjectAssignment::where('class_section_id', $sectionId)
+                ->where('is_active', 1)
+                ->with('subject')
+                ->get();
+
+            $subjects = [];
+            foreach ($assignments as $assignment) {
+                if ($assignment->subject) {
+                    $subjects[] = [
+                        'id' => $assignment->subject->id,
+                        'name' => $assignment->subject->name,
+                        'code' => $assignment->subject->code ?? 'N/A',
+                        'type' => $assignment->subject->type ?? 'theory',
+                        'assignment_id' => $assignment->id,
+                        'weekly_frequency' => $assignment->weekly_frequency,
+                        'is_elective' => $assignment->is_elective,
+                    ];
+                }
+            }
+
+            return response()->json($subjects);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get assigned subjects with full details (AJAX)
+     */
+    public function getAssignedSubjects($sectionId)
+    {
+        $assignments = SubjectAssignment::where('class_section_id', $sectionId)
+            ->with(['subject', 'teacher'])
+            ->get();
+
+        return response()->json($assignments);
+    }
+
+    /**
+     * Get all subjects for a section (for dropdown)
+     */
+    public function getAvailableSubjects($sectionId)
+    {
+        $assignedSubjectIds = SubjectAssignment::where('class_section_id', $sectionId)
+            ->pluck('subject_id')
+            ->toArray();
+
+        $subjects = Subject::where('is_active', true)
+            ->whereNotIn('id', $assignedSubjectIds)
+            ->get();
+
+        return response()->json($subjects);
     }
 }

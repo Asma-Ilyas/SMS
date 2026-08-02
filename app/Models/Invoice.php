@@ -1,20 +1,18 @@
 <?php
+
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Storage;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class Invoice extends Model
 {
-    use HasFactory;
-
     protected $fillable = [
         'invoice_number', 'student_id', 'bank_id', 'student_fee_installment_id',
         'payment_method_id', 'amount', 'due_date', 'status', 'challan_file',
         'payment_proof_file', 'payment_remarks', 'paid_at', 'approved_by',
-        'discount_id', 'discount_amount', 'original_amount', 'discount_notes',
+        'discount_id', 'discount_amount', 'original_amount', 'discount_notes'
     ];
 
     protected $casts = [
@@ -25,36 +23,42 @@ class Invoice extends Model
         'original_amount' => 'decimal:2',
     ];
 
-    // Relationships
-    public function student() { return $this->belongsTo(Student::class); }
-    public function bank() { return $this->belongsTo(Bank::class); }
-    public function installment() { return $this->belongsTo(StudentFeeInstallment::class, 'student_fee_installment_id'); }
-    public function paymentMethod() { return $this->belongsTo(PaymentMethod::class); }
-    public function approvedBy() { return $this->belongsTo(User::class, 'approved_by'); }
-    public function discount() { return $this->belongsTo(Discount::class); }
+    public function student()
+    {
+        return $this->belongsTo(Student::class);
+    }
 
-    // Generate unique invoice number
+    public function bank()
+    {
+        return $this->belongsTo(Bank::class);
+    }
+
+    public function installment()
+    {
+        return $this->belongsTo(StudentFeeInstallment::class, 'student_fee_installment_id');
+    }
+
+    public function paymentMethod()
+    {
+        return $this->belongsTo(PaymentMethod::class);
+    }
+
+    public function discount()
+    {
+        return $this->belongsTo(Discount::class);
+    }
+
     public static function generateInvoiceNumber()
     {
         return 'INV-' . date('Ymd') . '-' . strtoupper(uniqid());
     }
 
-    // Generate PDF voucher with ALL active banks
     public function generateChallan()
     {
         $this->load(['student', 'installment.feeType', 'paymentMethod']);
-        $invoice = $this;
-        $installment = $this->installment;
-        $paymentMethod = $this->paymentMethod;
-
-        // ✅ Get ALL active banks
         $allBanks = Bank::where('is_active', true)->get();
-        // Get mobile wallets (optional)
         $mobileWallets = PaymentMethod::where('type', 'mobile_wallet')->where('is_active', true)->get();
-
-        $pdf = Pdf::loadView('admin.fees.invoices.voucher', compact(
-            'invoice', 'installment', 'paymentMethod', 'allBanks', 'mobileWallets'
-        ));
+        $pdf = Pdf::loadView('admin.fees.invoices.voucher', compact('invoice', 'allBanks', 'mobileWallets'));
         $path = 'invoices/voucher_' . $this->invoice_number . '.pdf';
         Storage::disk('public')->put($path, $pdf->output());
         $this->challan_file = $path;

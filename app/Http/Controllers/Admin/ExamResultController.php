@@ -8,6 +8,7 @@ use App\Models\ExamMark;
 use App\Models\Student;
 use App\Models\ExamGroup;
 use App\Models\Subject;
+use App\Models\ClassSection;          // ✅ added
 use Illuminate\Http\Request;
 use Barryvdh\DomPDF\Facade\Pdf;
 
@@ -25,10 +26,10 @@ class ExamResultController extends Controller
         return view('admin.exams.result-single', compact('exam', 'student', 'marks', 'summary'));
     }
 
-    // Bulk print: select students and generate PDF result slips
+    // Bulk print: select students from a class section
     public function bulkPrintForm(Exam $exam)
     {
-        $students = $exam->students();
+        $students = $exam->classSection ? $exam->classSection->students : collect();
         return view('admin.exams.bulk-print', compact('exam', 'students'));
     }
 
@@ -52,7 +53,8 @@ class ExamResultController extends Controller
     // Academic Report (all exams for a student)
     public function academicReport(Student $student)
     {
-        $exams = Exam::where('class_id', $student->class_id)
+        // ✅ Get all published exams for the student's class section
+        $exams = Exam::where('class_section_id', $student->class_section_id)
             ->where('is_published', true)
             ->orderBy('start_date')
             ->get();
@@ -69,70 +71,77 @@ class ExamResultController extends Controller
         return view('admin.exams.academic-report', compact('student', 'report', 'overall'));
     }
 
-    // Multi-Group Report
+    // Multi-Group Report (now uses class_section_id)
     public function multiGroupReportForm()
     {
         $groups = ExamGroup::where('is_active', true)->orderBy('name')->get();
-        $students = Student::orderBy('first_name')->orderBy('last_name')->get();
-        return view('admin.exams.multi-group-report', compact('groups', 'students'));
+        $classSections = ClassSection::with('class.grade')->get();
+        return view('admin.exams.multi-group-report', compact('groups', 'classSections'));
     }
 
     public function multiGroupReport(Request $request)
     {
         $request->validate([
-            'student_id' => 'required|exists:students,id',
-            'group_ids'  => 'required|array|min:1',
-            'group_ids.*' => 'exists:exam_groups,id',
+            'class_section_id' => 'required|exists:class_sections,id',
+            'group_ids'        => 'required|array|min:1',
+            'group_ids.*'      => 'exists:exam_groups,id',
         ]);
-        $student = Student::find($request->student_id);
+
+        $classSection = ClassSection::find($request->class_section_id);
         $groups = ExamGroup::whereIn('id', $request->group_ids)->orderBy('sort_order')->get();
 
+        // Get all students in this class section (for report generation)
+        $students = $classSection->students;
+
+        // For multi‑group report, we need to generate a PDF covering all students? 
+        // The original method only handled one student. We'll adjust to handle all students of that class section.
         $reportData = [];
-        foreach ($groups as $group) {
-            $exams = Exam::where('exam_group_id', $group->id)
-                ->where('class_id', $student->class_id)
-                ->where('is_published', true)
-                ->orderBy('start_date')
-                ->get();
-
-            $examData = [];
-            $groupTotal = ['total_marks' => 0, 'total_max' => 0];
-
-            foreach ($exams as $exam) {
-                $marks = ExamMark::with('subject')
-                    ->where('exam_id', $exam->id)
-                    ->where('student_id', $student->id)
+        foreach ($students as $student) {
+            $studentData = [];
+            foreach ($groups as $group) {
+                $exams = Exam::where('exam_group_id', $group->id)
+                    ->where('class_section_id', $classSection->id)
+                    ->where('is_published', true)
+                    ->orderBy('start_date')
                     ->get();
-                $summary = $this->calculateSummary($marks);
-                $groupTotal['total_marks'] += $summary['total_marks'];
-                $groupTotal['total_max'] += $summary['total_max'];
-                $examData[] = ['exam' => $exam, 'marks' => $marks, 'summary' => $summary];
-            }
 
-            $groupPercentage = $groupTotal['total_max'] > 0 ? round(($groupTotal['total_marks'] / $groupTotal['total_max']) * 100, 2) : 0;
-            $reportData[] = [
-                'group' => $group,
-                'exams' => $examData,
-                'total_marks' => $groupTotal['total_marks'],
-                'total_max' => $groupTotal['total_max'],
-                'percentage' => $groupPercentage,
-                'grade' => $this->getGrade($groupPercentage)
-            ];
+                $examData = [];
+                $groupTotal = ['total_marks' => 0, 'total_max' => 0];
+
+                foreach ($exams as $exam) {
+                    $marks = ExamMark::with('subject')
+                        ->where('exam_id', $exam->id)
+                        ->where('student_id', $student->id)
+                        ->get();
+                    $summary = $this->calculateSummary($marks);
+                    $groupTotal['total_marks'] += $summary['total_marks'];
+                    $groupTotal['total_max'] += $summary['total_max'];
+                    $examData[] = ['exam' => $exam, 'marks' => $marks, 'summary' => $summary];
+                }
+
+                $groupPercentage = $groupTotal['total_max'] > 0 ? round(($groupTotal['total_marks'] / $groupTotal['total_max']) * 100, 2) : 0;
+                $studentData[] = [
+                    'group' => $group,
+                    'exams' => $examData,
+                    'total_marks' => $groupTotal['total_marks'],
+                    'total_max'   => $groupTotal['total_max'],
+                    'percentage'  => $groupPercentage,
+                    'grade'       => $this->getGrade($groupPercentage)
+                ];
+            }
+            $reportData[] = ['student' => $student, 'groups_data' => $studentData];
         }
-        $pdf = Pdf::loadView('pdf.multi-group-report', compact('student', 'reportData'));
-        return $pdf->download("academic_report_{$student->id}.pdf");
+
+        $pdf = Pdf::loadView('pdf.multi-group-report', compact('classSection', 'reportData', 'groups'));
+        return $pdf->download("academic_report_class_section_{$classSection->id}.pdf");
     }
 
     // ========== MARKS ENTRY ==========
     public function marksEntryForm(Exam $exam)
     {
-        $students = Student::where('class_id', $exam->class_id)
-            ->with(['marks' => function($q) use ($exam) {
-                $q->where('exam_id', $exam->id);
-            }])
-            ->orderBy('first_name')
-            ->orderBy('last_name')
-            ->get();
+        // ✅ Get students via class_section
+        $students = $exam->classSection ? $exam->classSection->students : collect();
+        $students = $students->sortBy('first_name')->values();
 
         $subjects = Subject::orderBy('name')->get();
 
@@ -166,62 +175,32 @@ class ExamResultController extends Controller
         return redirect()->back()->with('success', 'Marks saved successfully.');
     }
 
-    // ========== CLASS & SECTION PDF MARKSHEET ==========
-public function classSectionMarksheet(Exam $exam, $classId = null, $sectionId = null)
-{
-    // Start query
-    $students = Student::with(['class', 'marks' => function($q) use ($exam) {
-        $q->where('exam_id', $exam->id)->with('subject');
-    }]);
+    // ========== CLASS SECTION PDF MARKSHEET ==========
+    public function classSectionMarksheet(Exam $exam, $classSectionId)
+    {
+        $classSection = ClassSection::with('class.grade')->findOrFail($classSectionId);
+        $students = $classSection->students()->orderBy('first_name')->orderBy('last_name')->get();
 
-    if ($classId) {
-        $students->where('class_id', $classId);
+        // Get subjects that have marks for this exam in this class section
+        $subjects = Subject::whereHas('examMarks', function ($q) use ($exam, $classSectionId) {
+            $q->where('exam_id', $exam->id)
+              ->whereIn('student_id', Student::where('class_section_id', $classSectionId)->pluck('id'));
+        })->orderBy('name')->get();
+
+        if ($subjects->isEmpty()) {
+            // fallback: all subjects assigned to this class section
+            $subjects = $classSection->subjectAssignments->map->subject->sortBy('name');
+        }
+
+        $pdf = Pdf::loadView('pdf.class_section_marksheet', [
+            'exam'          => $exam,
+            'classSection'  => $classSection,
+            'students'      => $students,
+            'subjects'      => $subjects,
+        ]);
+
+        return $pdf->download("class_section_marksheet_{$exam->id}_{$classSectionId}.pdf");
     }
-
-    if ($sectionId) {
-        // If your students table has a column 'section' (string), use:
-        $students->where('section', $sectionId);
-        // If it uses a foreign key 'section_id', use:
-        // $students->where('section_id', $sectionId);
-    }
-
-    $students = $students->orderBy('class_id')
-                         ->orderBy('first_name')
-                         ->orderBy('last_name')
-                         ->get();
-
-    // Debug: Log students and marks
-    \Log::info('Students count: ' . $students->count());
-    foreach ($students as $s) {
-        \Log::info('Student: ' . $s->first_name . ' ' . $s->last_name . ', Marks count: ' . $s->marks->count());
-    }
-
-    // Group by class name and section (direct column)
-    $grouped = [];
-    foreach ($students as $student) {
-        $className = $student->class ? $student->class->name : 'N/A';
-        $sectionName = $student->section ?? 'N/A';  // direct column
-        $grouped[$className][$sectionName][] = $student;
-    }
-
-    // Get subjects that have marks for this exam
-    $subjects = Subject::whereHas('marks', function($q) use ($exam) {
-        $q->where('exam_id', $exam->id);
-    })->orderBy('name')->get();
-
-    // If no subjects, fallback to all subjects
-    if ($subjects->isEmpty()) {
-        $subjects = Subject::orderBy('name')->get();
-    }
-
-    $pdf = Pdf::loadView('pdf.class_section_marksheet', [
-        'exam' => $exam,
-        'grouped' => $grouped,
-        'subjects' => $subjects,
-    ]);
-
-    return $pdf->download("class_section_marksheet_{$exam->id}.pdf");
-}
 
     // ========== HELPER METHODS ==========
     private function calculateSummary($marks)
@@ -231,9 +210,9 @@ public function classSectionMarksheet(Exam $exam, $classId = null, $sectionId = 
         $percentage = $totalMax > 0 ? round(($totalMarks / $totalMax) * 100, 2) : 0;
         return [
             'total_marks' => $totalMarks,
-            'total_max' => $totalMax,
-            'percentage' => $percentage,
-            'grade' => $this->getGrade($percentage)
+            'total_max'   => $totalMax,
+            'percentage'  => $percentage,
+            'grade'       => $this->getGrade($percentage)
         ];
     }
 
@@ -259,9 +238,9 @@ public function classSectionMarksheet(Exam $exam, $classId = null, $sectionId = 
         $percentage = $totalMax > 0 ? round(($totalMarks / $totalMax) * 100, 2) : 0;
         return [
             'total_marks' => $totalMarks,
-            'total_max' => $totalMax,
-            'percentage' => $percentage,
-            'grade' => $this->getGrade($percentage)
+            'total_max'   => $totalMax,
+            'percentage'  => $percentage,
+            'grade'       => $this->getGrade($percentage)
         ];
     }
 }

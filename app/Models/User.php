@@ -46,4 +46,10 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+
+    // In your User model, add:
+public function staff()
+{
+    return $this->belongsTo(Staff::class, 'staff_id');
+}
 }

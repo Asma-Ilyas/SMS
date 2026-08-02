@@ -1,55 +1,78 @@
 @extends('layouts.app')
-@section('title', 'Mark Salary as Paid')
+
+@section('title', 'Mark Salary Paid')
+
 @section('content')
-<div class="max-w-2xl mx-auto py-8">
-    <div class="bg-white rounded-xl shadow-md overflow-hidden">
-        <div class="px-6 py-4 bg-gray-50 border-b">
-            <h1 class="text-2xl font-bold">Mark Salary as Paid</h1>
-            <p class="text-sm text-gray-600 mt-1">
-                Employee: <strong>{{ $salary->staff->first_name }} {{ $salary->staff->last_name }}</strong><br>
-                Month: <strong>{{ \Carbon\Carbon::createFromFormat('Y-m', $salary->month)->format('F Y') }}</strong><br>
-                Net Salary: <strong>₹{{ number_format($salary->net_salary, 2) }}</strong>
-            </p>
+<div class="container px-4 py-6 max-w-2xl mx-auto">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                <span>✅</span> Mark Salary as Paid
+            </h1>
+            <p class="text-sm text-slate-500">{{ $salary->staff->full_name }} - {{ $salary->month }}</p>
         </div>
+        <a href="{{ route('admin.salaries.show', $salary->id) }}" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg transition text-sm font-medium">
+            ← Back
+        </a>
+    </div>
 
-        <form method="POST" action="{{ route('admin.salaries.mark-paid.update', $salary) }}" class="p-6 space-y-4">
+    <!-- Salary Info -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-6 mb-6">
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <p class="text-xs text-slate-400">Employee</p>
+                <p class="font-semibold text-slate-800">{{ $salary->staff->full_name }}</p>
+            </div>
+            <div>
+                <p class="text-xs text-slate-400">Net Salary</p>
+                <p class="text-2xl font-bold text-indigo-600">${{ number_format($salary->net_salary, 2) }}</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Form -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
+        <form method="POST" action="{{ route('admin.salaries.mark-paid.update', $salary->id) }}">
             @csrf
-            @method('PATCH')
-
-            <div class="grid grid-cols-2 gap-4">
+            <div class="space-y-4">
                 <div>
-                    <label class="block font-medium text-sm">Payment Date *</label>
-                    <input type="date" name="payment_date" value="{{ old('payment_date', now()->format('Y-m-d')) }}" 
-                           class="w-full border rounded px-3 py-2" required>
-                    @error('payment_date')<span class="text-red-600 text-sm">{{ $message }}</span>@enderror
+                    <label class="text-xs font-semibold text-slate-600 block mb-1">Payment Date *</label>
+                    <input type="date" name="payment_date" value="{{ old('payment_date', now()->toDateString()) }}" 
+                           class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" required>
                 </div>
+
                 <div>
-                    <label class="block font-medium text-sm">Payment Method *</label>
-                    <select name="payment_method" class="w-full border rounded px-3 py-2" required>
-                        <option value="bank">Bank Transfer</option>
-                        <option value="cash">Cash</option>
-                        <option value="cheque">Cheque</option>
+                    <label class="text-xs font-semibold text-slate-600 block mb-1">Payment Method *</label>
+                    <select name="payment_method" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" required>
+                        <option value="bank">🏦 Bank Transfer</option>
+                        <option value="cash">💵 Cash</option>
+                        <option value="cheque">📝 Cheque</option>
                     </select>
-                    @error('payment_method')<span class="text-red-600 text-sm">{{ $message }}</span>@enderror
+                </div>
+
+                <div>
+                    <label class="text-xs font-semibold text-slate-600 block mb-1">Transaction Reference</label>
+                    <input type="text" name="transaction_ref" value="{{ old('transaction_ref') }}" 
+                           placeholder="Enter transaction reference number"
+                           class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <div>
+                    <label class="text-xs font-semibold text-slate-600 block mb-1">Remarks</label>
+                    <textarea name="remarks" rows="3" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" 
+                              placeholder="Any additional remarks...">{{ old('remarks') }}</textarea>
                 </div>
             </div>
 
-            <div>
-                <label class="block font-medium text-sm">Transaction Reference (optional)</label>
-                <input type="text" name="transaction_ref" value="{{ old('transaction_ref', $salary->transaction_ref) }}" 
-                       class="w-full border rounded px-3 py-2" placeholder="e.g., UTR number, cheque number">
-                @error('transaction_ref')<span class="text-red-600 text-sm">{{ $message }}</span>@enderror
-            </div>
-
-            <div>
-                <label class="block font-medium text-sm">Remarks (optional)</label>
-                <textarea name="remarks" rows="2" class="w-full border rounded px-3 py-2">{{ old('remarks') }}</textarea>
-            </div>
-
-            <div class="flex justify-end space-x-3 pt-4">
-                <a href="{{ route('admin.salaries.index') }}" class="px-4 py-2 bg-gray-200 rounded">Cancel</a>
-                <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
-                    Confirm & Mark as Paid
+            <div class="flex gap-3 mt-6 pt-4 border-t border-slate-100">
+                <a href="{{ route('admin.salaries.show', $salary->id) }}" 
+                   class="flex-1 px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg transition text-sm font-medium text-center">
+                    Cancel
+                </a>
+                <button type="submit" class="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition text-sm font-medium">
+                    ✅ Confirm Payment
                 </button>
             </div>
         </form>

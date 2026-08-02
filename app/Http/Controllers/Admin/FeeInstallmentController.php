@@ -1,32 +1,26 @@
 <?php
-// app/Http/Controllers/Admin/FeeInstallmentController.php
 
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\StudentFeeSubmission; // ← Changed from StudentFeeInstallment
 use App\Models\Student;
 use App\Models\FeeSubmissionType;
-use App\Models\StudentFeeInstallment;
 use App\Models\Bank;
-use App\Models\PaymentMethod;
 use App\Models\Invoice;
-use App\Models\User;
-use App\Models\StudentDiscount;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
-use App\Notifications\PaymentProofUploaded;
-use Barryvdh\DomPDF\Facade\Pdf;
 
 class FeeInstallmentController extends Controller
 {
     /**
-     * List all installments
+     * Display a listing of fee installments
      */
     public function index()
     {
-        $installments = StudentFeeInstallment::with(['student', 'feeType', 'invoice'])
+        $installments = StudentFeeSubmission::with(['student', 'feeSubmissionType', 'invoices']) // ← Changed
             ->latest()
             ->paginate(20);
+            
         return view('admin.fees.installments.index', compact('installments'));
     }
 
@@ -38,260 +32,236 @@ class FeeInstallmentController extends Controller
         $students = Student::orderBy('first_name')->get();
         $feeTypes = FeeSubmissionType::where('is_active', true)->orderBy('name')->get();
         $banks = Bank::where('is_active', true)->get();
+        
         return view('admin.fees.installments.create', compact('students', 'feeTypes', 'banks'));
     }
 
     /**
-     * Store a new installment plan (2+ installments)
+     * Store a newly created installment
      */
     public function store(Request $request)
     {
         $request->validate([
-            'student_id'              => 'required|exists:students,id',
-            'fee_submission_type_id'  => 'required|exists:fee_submission_types,id',
-            'total_amount'            => 'required|numeric|min:0',
-            'installment_count'       => 'required|integer|min:2|max:12',
-            'due_dates'               => 'required|array|min:2',
-            'due_dates.*'             => 'required|date',
+            'student_id' => 'required|exists:students,id',
+            'fee_submission_type_id' => 'required|exists:fee_submission_types,id',
+            'installment_number' => 'required|integer|min:1',
+            'amount' => 'required|numeric|min:0',
+            'due_date' => 'required|date',
+            'status' => 'nullable|in:pending,partial,paid',
         ]);
 
-        // Delete any existing installments for same student+feetype
-        StudentFeeInstallment::where('student_id', $request->student_id)
-            ->where('fee_submission_type_id', $request->fee_submission_type_id)
-            ->delete();
+        $installment = StudentFeeSubmission::create($request->all()); // ← Changed
 
-        $installmentAmount = round($request->total_amount / $request->installment_count, 2);
-        $lastAdjustment = $request->total_amount - ($installmentAmount * ($request->installment_count - 1));
-
-        for ($i = 1; $i <= $request->installment_count; $i++) {
-            $amount = ($i == $request->installment_count) ? $lastAdjustment : $installmentAmount;
-            StudentFeeInstallment::create([
-                'student_id'               => $request->student_id,
-                'fee_submission_type_id'   => $request->fee_submission_type_id,
-                'installment_number'       => $i,
-                'amount'                   => $amount,
-                'due_date'                 => $request->due_dates[$i-1],
-                'status'                   => 'pending',
-                'paid_amount'              => 0,
-            ]);
-        }
+        // Generate invoice
+        $this->generateInvoice($installment);
 
         return redirect()->route('admin.fee-installments.index')
-            ->with('success', 'Installment plan created successfully.');
+            ->with('success', 'Installment created successfully.');
     }
 
     /**
-     * Show details of a single installment
+     * Display the specified installment
      */
     public function show($id)
     {
-        $installment = StudentFeeInstallment::with(['student', 'feeType', 'invoice.paymentMethod'])->findOrFail($id);
+        $installment = StudentFeeSubmission::with(['student', 'feeSubmissionType', 'invoices', 'invoices.bank']) // ← Changed
+            ->findOrFail($id);
+            
         return view('admin.fees.installments.show', compact('installment'));
     }
 
     /**
-     * Delete an installment (only if not paid)
+     * Show form to edit installment
      */
-    public function destroy(StudentFeeInstallment $installment)
+    public function edit($id)
     {
-        if ($installment->status == 'paid') {
-            return back()->with('error', 'Cannot delete a paid installment.');
-        }
-        if ($installment->invoice) {
-            $installment->invoice->delete();
-        }
+        $installment = StudentFeeSubmission::findOrFail($id); // ← Changed
+        $students = Student::orderBy('first_name')->get();
+        $feeTypes = FeeSubmissionType::where('is_active', true)->orderBy('name')->get();
+        $banks = Bank::where('is_active', true)->get();
+        
+        return view('admin.fees.installments.edit', compact('installment', 'students', 'feeTypes', 'banks'));
+    }
+
+    /**
+     * Update the specified installment
+     */
+    public function update(Request $request, $id)
+    {
+        $installment = StudentFeeSubmission::findOrFail($id); // ← Changed
+
+        $request->validate([
+            'student_id' => 'required|exists:students,id',
+            'fee_submission_type_id' => 'required|exists:fee_submission_types,id',
+            'installment_number' => 'required|integer|min:1',
+            'amount' => 'required|numeric|min:0',
+            'due_date' => 'required|date',
+            'status' => 'nullable|in:pending,partial,paid',
+        ]);
+
+        $installment->update($request->all());
+
+        return redirect()->route('admin.fee-installments.index')
+            ->with('success', 'Installment updated successfully.');
+    }
+
+    /**
+     * Delete the specified installment
+     */
+    public function destroy($id)
+    {
+        $installment = StudentFeeSubmission::findOrFail($id); // ← Changed
+        
+        // Delete associated invoices first
+        $installment->invoices()->delete();
         $installment->delete();
+
         return redirect()->route('admin.fee-installments.index')
-            ->with('success', 'Installment deleted.');
+            ->with('success', 'Installment deleted successfully.');
     }
 
     /**
-     * Show form to record a payment for an installment
+     * Show payment form
      */
-    public function payForm(StudentFeeInstallment $installment)
+    public function payForm($id)
     {
-        if ($installment->status == 'paid') {
-            return redirect()->route('admin.fee-installments.index')
-                ->with('error', 'This installment is already fully paid.');
-        }
-        return view('admin.fees.installments.pay', compact('installment'));
+        $installment = StudentFeeSubmission::with(['student', 'feeSubmissionType']) // ← Changed
+            ->findOrFail($id);
+            
+        $banks = Bank::where('is_active', true)->get();
+        
+        return view('admin.fees.installments.pay', compact('installment', 'banks'));
     }
 
     /**
-     * Process payment for an installment
+     * Process payment
      */
-    public function pay(Request $request, StudentFeeInstallment $installment)
+    public function pay(Request $request, $id)
     {
+        $installment = StudentFeeSubmission::findOrFail($id); // ← Changed
+
         $request->validate([
-            'amount'         => 'required|numeric|min:0.01|max:' . $installment->remaining,
-            'payment_date'   => 'required|date',
+            'payment_date' => 'required|date',
+            'paid_amount' => 'required|numeric|min:0|max:' . ($installment->amount - $installment->paid_amount),
+            'payment_method' => 'required|in:bank,cash,cheque',
+            'bank_id' => 'nullable|exists:banks,id',
             'receipt_number' => 'nullable|string|max:100',
-            'remarks'        => 'nullable|string',
+            'remarks' => 'nullable|string|max:500',
         ]);
 
-        $installment->recordPartialPayment(
-            $request->amount,
-            $request->payment_date,
-            $request->receipt_number
-        );
-        $installment->remarks = $request->remarks;
-        $installment->save();
+        $paidAmount = $request->paid_amount;
+        $newPaidAmount = $installment->paid_amount + $paidAmount;
+        
+        $status = 'partial';
+        if ($newPaidAmount >= $installment->amount) {
+            $status = 'paid';
+            $newPaidAmount = $installment->amount;
+        }
 
-        if ($installment->invoice && $installment->status == 'paid') {
-            $installment->invoice->markAsPaid(
-                $installment->invoice->payment_proof_file,
-                $installment->invoice->payment_remarks,
-                auth()->id()
-            );
+        $installment->update([
+            'paid_amount' => $newPaidAmount,
+            'status' => $status,
+            'payment_date' => $request->payment_date,
+        ]);
+
+        // Update associated invoice
+        $invoice = $installment->invoices()->first();
+        if ($invoice) {
+            $invoice->update([
+                'status' => $status,
+                'paid_at' => $request->payment_date,
+                'payment_remarks' => $request->remarks,
+            ]);
         }
 
         return redirect()->route('admin.fee-installments.index')
-            ->with('success', 'Payment recorded successfully.');
+            ->with('success', 'Payment processed successfully.');
     }
 
     /**
-     * Generate a voucher (challan) for a specific installment
+     * Generate invoice for installment
      */
-    public function generateInvoice(Request $request, StudentFeeInstallment $installment)
+    protected function generateInvoice($installment)
     {
-        $request->validate([
-            'payment_method_id' => 'required|exists:payment_methods,id',
+        $invoiceNumber = 'INV-' . str_pad(Invoice::count() + 1, 6, '0', STR_PAD_LEFT);
+        
+        Invoice::create([
+            'invoice_number' => $invoiceNumber,
+            'student_id' => $installment->student_id,
+            'bank_id' => null,
+            'student_fee_submission_id' => $installment->id, // ← Changed
+            'amount' => $installment->amount,
+            'discount_amount' => 0,
+            'due_date' => $installment->due_date,
+            'status' => 'pending',
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
-
-        if ($installment->invoice) {
-            return redirect()->route('admin.fee-installments.show', $installment)
-                ->with('error', 'An invoice already exists for this installment.');
-        }
-
-        $paymentMethod = PaymentMethod::with('bank')->findOrFail($request->payment_method_id);
-
-        // Fetch all active banks and mobile wallets for the voucher
-        $allBanks = Bank::where('is_active', true)->get();
-        $mobileWallets = PaymentMethod::where('type', 'mobile_wallet')->where('is_active', true)->get();
-
-        // Apply discount logic
-        $originalAmount = $installment->remaining;
-        $finalAmount = $originalAmount;
-        $discountId = null;
-        $discountAmount = 0;
-
-        $studentDiscounts = StudentDiscount::where('student_id', $installment->student_id)
-            ->where(function ($q) use ($installment) {
-                $q->where('fee_submission_type_id', $installment->fee_submission_type_id)
-                  ->orWhereNull('fee_submission_type_id');
-            })
-            ->where(function ($q) {
-                $q->whereNull('valid_from')->orWhere('valid_from', '<=', now());
-                $q->whereNull('valid_until')->orWhere('valid_until', '>=', now());
-            })
-            ->with('discount')
-            ->get();
-
-        if ($studentDiscounts->count()) {
-            $bestDiscount = null;
-            $bestDiscountAmount = 0;
-            foreach ($studentDiscounts as $sd) {
-                $discountValue = $sd->discount->calculate($originalAmount);
-                if ($discountValue > $bestDiscountAmount) {
-                    $bestDiscountAmount = $discountValue;
-                    $bestDiscount = $sd->discount;
-                }
-            }
-            if ($bestDiscount) {
-                $discountAmount = $bestDiscountAmount;
-                $finalAmount = $originalAmount - $discountAmount;
-                $discountId = $bestDiscount->id;
-            }
-        }
-
-        $invoice = Invoice::create([
-            'invoice_number'              => Invoice::generateInvoiceNumber(),
-            'student_id'                  => $installment->student_id,
-            'student_fee_installment_id'  => $installment->id,
-            'payment_method_id'           => $paymentMethod->id,
-            'amount'                      => $finalAmount,
-            'due_date'                    => $installment->due_date,
-            'status'                      => 'pending',
-            'applied_discount_id'         => $discountId,
-            'discount_amount'             => $discountAmount,
-            'original_amount'             => $originalAmount,
-            'discount_notes'              => $discountId ? 'Discount applied' : null,
-        ]);
-
-        // Generate voucher PDF
-        $pdf = Pdf::loadView('admin.fees.invoices.voucher', compact('invoice', 'paymentMethod', 'allBanks', 'mobileWallets'));
-        $path = 'invoices/voucher_' . $invoice->invoice_number . '.pdf';
-        Storage::disk('public')->put($path, $pdf->output());
-        $invoice->challan_file = $path;
-        $invoice->save();
-
-        return redirect()->route('admin.fee-installments.show', $installment)
-            ->with('success', 'Voucher generated.');
     }
 
     /**
-     * Download the voucher PDF
+     * Download challan
      */
-    public function downloadChallan(StudentFeeInstallment $installment)
+    public function downloadChallan($id)
     {
-        if (!$installment->invoice || !$installment->invoice->challan_file) {
-            return redirect()->back()->with('error', 'No voucher found for this installment.');
+        $installment = StudentFeeSubmission::with(['student', 'invoices']) // ← Changed
+            ->findOrFail($id);
+            
+        $invoice = $installment->invoices()->first();
+        
+        if (!$invoice) {
+            return back()->with('error', 'No invoice found for this installment.');
         }
-        $file = Storage::disk('public')->path($installment->invoice->challan_file);
-        return response()->download($file);
+
+        // Generate PDF logic here
+        // return PDF::download(...);
+        
+        return back()->with('info', 'Challan download functionality will be implemented.');
     }
 
     /**
      * Upload payment proof
      */
-    public function uploadProof(Request $request, StudentFeeInstallment $installment)
+    public function uploadProof(Request $request, $id)
     {
+        $installment = StudentFeeSubmission::findOrFail($id); // ← Changed
+
         $request->validate([
-            'payment_proof' => 'required|file|mimes:jpg,png,pdf|max:2048',
-            'remarks'       => 'nullable|string',
+            'payment_proof' => 'required|file|mimes:jpg,jpeg,png,pdf|max:2048',
         ]);
 
-        if (!$installment->invoice) {
-            return back()->with('error', 'No invoice associated. Please generate an invoice first.');
+        $path = $request->file('payment_proof')->store('payment_proofs', 'public');
+
+        $invoice = $installment->invoices()->first();
+        if ($invoice) {
+            $invoice->update(['payment_proof_file' => $path]);
         }
 
-        $invoice = $installment->invoice;
-        $path = $request->file('payment_proof')->store('invoices/proofs', 'public');
-        $invoice->payment_proof_file = $path;
-        $invoice->payment_remarks = $request->remarks;
-        $invoice->save();
-
-        $admins = User::where('is_admin', true)->get();
-        foreach ($admins as $admin) {
-            $admin->notify(new PaymentProofUploaded($invoice));
-        }
-
-        return redirect()->route('admin.fee-installments.show', $installment)
-            ->with('success', 'Payment proof uploaded. Admin will review and approve.');
+        return back()->with('success', 'Payment proof uploaded successfully.');
     }
 
     /**
-     * Admin approves payment proof, marks installment as paid
+     * Approve payment
      */
-    public function approvePayment(StudentFeeInstallment $installment)
+    public function approvePayment($id)
     {
-        if (!$installment->invoice) {
-            return back()->with('error', 'No invoice found for this installment.');
-        }
-        $invoice = $installment->invoice;
-        if ($invoice->status == 'paid') {
-            return back()->with('error', 'This payment is already approved.');
-        }
-        if (!$invoice->payment_proof_file) {
-            return back()->with('error', 'No payment proof uploaded yet.');
+        $installment = StudentFeeSubmission::findOrFail($id); // ← Changed
+
+        $installment->update([
+            'status' => 'paid',
+            'paid_amount' => $installment->amount,
+            'payment_date' => now(),
+        ]);
+
+        $invoice = $installment->invoices()->first();
+        if ($invoice) {
+            $invoice->update([
+                'status' => 'paid',
+                'paid_at' => now(),
+                'approved_by' => auth()->id(),
+            ]);
         }
 
-        $invoice->markAsPaid($invoice->payment_proof_file, $invoice->payment_remarks, auth()->id());
-        if ($installment->status != 'paid') {
-            $installment->markAsPaid(now(), $invoice->invoice_number);
-        }
-
-        return redirect()->route('admin.fee-installments.index')
-            ->with('success', 'Payment approved. Installment marked as paid.');
+        return back()->with('success', 'Payment approved successfully.');
     }
 }

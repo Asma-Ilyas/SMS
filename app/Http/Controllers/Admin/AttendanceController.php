@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Attendance;
+use App\Models\StaffAttendance;
 use App\Models\Staff;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
@@ -12,7 +12,7 @@ class AttendanceController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Attendance::with('staff');
+        $query = StaffAttendance::with('staff');
 
         if ($request->filled('employee_id')) {
             $query->where('staff_id', $request->employee_id);
@@ -50,11 +50,10 @@ class AttendanceController extends Controller
         $arrival = $validated['arrival_time'] ? Carbon::parse($validated['arrival_time']) : null;
         $departure = $validated['departure_time'] ? Carbon::parse($validated['departure_time']) : null;
 
-        // Calculate metrics
         $metrics = $this->calculateAttendanceMetrics($employee, $arrival, $departure);
         $remarks = $this->buildRemarks($employee, $arrival, $departure, $validated['remarks'] ?? null, $metrics);
 
-        $attendance = Attendance::updateOrCreate(
+        $attendance = StaffAttendance::updateOrCreate(
             [
                 'staff_id' => $validated['employee_id'],
                 'date'     => $validated['date'],
@@ -74,13 +73,13 @@ class AttendanceController extends Controller
             ->with('success', 'Attendance record saved.');
     }
 
-    public function edit(Attendance $attendance)
+    public function edit(StaffAttendance $attendance)
     {
         $employees = Staff::with('category')->orderBy('first_name')->orderBy('last_name')->get();
         return view('admin.attendance.edit', compact('attendance', 'employees'));
     }
 
-    public function update(Request $request, Attendance $attendance)
+    public function update(Request $request, StaffAttendance $attendance)
     {
         $validated = $request->validate([
             'employee_id'    => 'required|exists:staff,id',
@@ -90,9 +89,8 @@ class AttendanceController extends Controller
             'remarks'        => 'nullable|string',
         ]);
 
-        // Check uniqueness if employee/date changed
         if ($attendance->staff_id != $validated['employee_id'] || $attendance->date != $validated['date']) {
-            $exists = Attendance::where('staff_id', $validated['employee_id'])
+            $exists = StaffAttendance::where('staff_id', $validated['employee_id'])
                 ->where('date', $validated['date'])
                 ->exists();
             if ($exists) {
@@ -123,21 +121,18 @@ class AttendanceController extends Controller
             ->with('success', 'Attendance record updated.');
     }
 
-    public function show(Attendance $attendance)
+    public function show(StaffAttendance $attendance)
     {
         return redirect()->route('admin.attendance.index');
     }
 
-    public function destroy(Attendance $attendance)
+    public function destroy(StaffAttendance $attendance)
     {
         $attendance->delete();
         return redirect()->route('admin.attendance.index')
             ->with('success', 'Attendance record deleted.');
     }
 
-    // ------------------------------------------------------------------
-    // Core calculation helper – returns all metrics
-    // ------------------------------------------------------------------
     private function calculateAttendanceMetrics($employee, $arrival, $departure)
     {
         $lateMinutes = 0;
@@ -154,7 +149,6 @@ class AttendanceController extends Controller
             ];
         }
 
-        // Check against category arrival time
         $categoryArrival = $employee->category?->arrival_time;
         if ($categoryArrival) {
             $expectedArrival = Carbon::parse($categoryArrival);
@@ -163,20 +157,16 @@ class AttendanceController extends Controller
             }
         }
 
-        // Default status – if late, set 'late', else 'present'
         $status = ($lateMinutes > 0) ? 'late' : 'present';
 
-        // If check-out exists, calculate work hours and possible half‑day / overtime
         if ($departure) {
             $workMinutes = $arrival->diffInMinutes($departure);
             $workHours = round($workMinutes / 60, 2);
 
-            // Half‑day if less than 4 hours (240 minutes)
             if ($workMinutes < 240) {
-                $status = 'half‑day';
+                $status = 'half_day';
             }
 
-            // Overtime: compare with category departure time
             $categoryDeparture = $employee->category?->departure_time;
             if ($categoryDeparture) {
                 $expectedDeparture = Carbon::parse($categoryDeparture);
@@ -194,9 +184,6 @@ class AttendanceController extends Controller
         ];
     }
 
-    // ------------------------------------------------------------------
-    // Build detailed remarks
-    // ------------------------------------------------------------------
     private function buildRemarks($employee, $arrival, $departure, $userRemarks, $metrics)
     {
         $remarks = [];
@@ -214,7 +201,6 @@ class AttendanceController extends Controller
             if ($metrics['overtime_minutes'] > 0) {
                 $remarks[] = "Overtime: {$metrics['overtime_minutes']} minutes";
             }
-            // Check early departure against category
             $categoryDeparture = $employee->category?->departure_time;
             if ($categoryDeparture && $departure->lt(Carbon::parse($categoryDeparture))) {
                 $earlyMinutes = $departure->diffInMinutes(Carbon::parse($categoryDeparture));

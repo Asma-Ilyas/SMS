@@ -7,7 +7,7 @@ use App\Models\Invoice;
 use App\Models\Student;
 use App\Models\Bank;
 use App\Models\StudentFeeInstallment;
-use App\Models\Classes;
+use App\Models\ClassSection;           // ✅ replaced Classes with ClassSection
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -21,22 +21,23 @@ class InvoiceController extends Controller
     }
 
     /**
-     * Show create form – classes → students → installments → BANKS only
+     * Show create form – class sections → students → installments → BANKS only
      */
     public function create()
     {
-        $classes = Classes::orderBy('id')->get();
-        // Only banks (type = 'bank'), active
+        // ✅ Fetch class sections with related class (for display)
+        $classSections = ClassSection::with('class.grade')->orderBy('class_id')->get();
+        // Only banks (type = 'bank'), active – but we don't have type field in banks, keep as is
         $banks = Bank::where('is_active', true)->get();
-        return view('admin.fees.invoices.create', compact('classes', 'banks'));
+        return view('admin.fees.invoices.create', compact('classSections', 'banks'));
     }
 
     /**
-     * AJAX: Get students by class
+     * ✅ AJAX: Get students by class_section_id (replaces old getStudentsByClass)
      */
-    public function getStudentsByClass($classId)
+    public function getStudentsByClassSection($classSectionId)
     {
-        $students = Student::where('class_id', $classId)
+        $students = Student::where('class_section_id', $classSectionId)
             ->orderBy('first_name')
             ->get(['id', 'first_name', 'last_name', 'roll_number']);
 
@@ -52,7 +53,7 @@ class InvoiceController extends Controller
     }
 
     /**
-     * AJAX: Get installments (pending/partial) for a student
+     * AJAX: Get installments (pending/partial) for a student (no change needed)
      */
     public function getInstallmentsByStudent($studentId)
     {
@@ -81,7 +82,7 @@ class InvoiceController extends Controller
         $request->validate([
             'student_id'                => 'required|exists:students,id',
             'student_fee_installment_id'=> 'required|exists:student_fee_installments,id',
-            'bank_id'                   => 'required|exists:banks,id',     // bank selected
+            'bank_id'                   => 'required|exists:banks,id',
             'amount'                    => 'required|numeric|min:0',
             'due_date'                  => 'required|date',
             'late_fee'                  => 'nullable|numeric|min:0',
@@ -101,7 +102,7 @@ class InvoiceController extends Controller
             'invoice_number' => Invoice::generateInvoiceNumber(),
             'student_id'     => $request->student_id,
             'student_fee_installment_id' => $request->student_fee_installment_id,
-            'bank_id'        => $request->bank_id,          // store bank ID
+            'bank_id'        => $request->bank_id,
             'amount'         => $request->amount,
             'due_date'       => $request->due_date,
             'status'         => 'pending',
@@ -145,7 +146,6 @@ class InvoiceController extends Controller
         $invoice->payment_remarks = $request->remarks;
         $invoice->save();
 
-        // Notify admin
         $admin = \App\Models\User::where('is_admin', true)->first();
         if ($admin) $admin->notify(new \App\Notifications\PaymentProofUploaded($invoice));
 

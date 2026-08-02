@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Attendance;
+use App\Models\StaffAttendance;      // ✅ Changed from Attendance to StaffAttendance
 use App\Models\Staff;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -30,7 +30,7 @@ class AttendanceCheckController extends Controller
         $now = Carbon::now();
 
         // Check if already checked in today
-        $attendance = Attendance::where('staff_id', $employee->id)
+        $attendance = StaffAttendance::where('staff_id', $employee->id)
             ->whereDate('date', $today)
             ->first();
 
@@ -57,7 +57,7 @@ class AttendanceCheckController extends Controller
         }
 
         // Create or update attendance record
-        $attendance = Attendance::updateOrCreate(
+        $attendance = StaffAttendance::updateOrCreate(
             [
                 'staff_id' => $employee->id,
                 'date'     => $today,
@@ -86,7 +86,7 @@ class AttendanceCheckController extends Controller
         $today = Carbon::today();
         $now = Carbon::now();
 
-        $attendance = Attendance::where('staff_id', $employee->id)
+        $attendance = StaffAttendance::where('staff_id', $employee->id)
             ->whereDate('date', $today)
             ->first();
 
@@ -108,7 +108,7 @@ class AttendanceCheckController extends Controller
 
         // Half‑day rule: less than 4 hours (240 minutes) of work
         if ($workMinutes < 240) {
-            $finalStatus = 'half‑day';
+            $finalStatus = 'half_day';   // ✅ Changed to match migration enum ('half_day' not 'half‑day')
             $remarks .= "Worked only {$workMinutes} minutes (half day).";
         } elseif ($workMinutes >= 480) {
             $remarks .= "Full day work ({$workMinutes} minutes).";

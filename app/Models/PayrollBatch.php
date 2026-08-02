@@ -12,40 +12,30 @@ class PayrollBatch extends Model
     protected $table = 'payroll_batches';
 
     protected $fillable = [
-        'month',
-        'run_date',
-        'status',       // draft, processed, paid
-        'total_employees',
-        'total_amount',
-        'created_by',
+        'batch_number', 'month', 'run_date', 'status', 'total_amount',
+        'total_employees', 'processed_by', 'processed_at', 'approved_by',
+        'approved_at', 'notes'
     ];
 
     protected $casts = [
-        'run_date'      => 'datetime',
-        'total_amount'  => 'decimal:2',
+        'run_date' => 'date',
+        'processed_at' => 'datetime',
+        'approved_at' => 'datetime',
+        'total_amount' => 'decimal:2',
     ];
 
-    /**
-     * Get all salary records generated in this batch.
-     */
-    public function salaries()
+    public function processedBy()
     {
-        return $this->hasMany(Salary::class, 'batch_id');
+        return $this->belongsTo(Staff::class, 'processed_by');
     }
 
-    /**
-     * Get the user (admin) who created this batch.
-     */
-    public function creator()
+    public function approvedBy()
     {
-        return $this->belongsTo(User::class, 'created_by');
+        return $this->belongsTo(Staff::class, 'approved_by');
     }
 
-    /**
-     * Scope a query to only include batches for a given month.
-     */
-    public function scopeForMonth($query, $month)
+    public function items()
     {
-        return $query->where('month', $month);
+        return $this->hasMany(PayrollItem::class);
     }
 }

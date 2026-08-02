@@ -3,326 +3,371 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Salary;
 use App\Models\Staff;
+use App\Models\Salary;
+use App\Models\SalaryTemplate;
+use App\Models\AttendanceSummary;
+use App\Services\SalaryCalculator;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class SalaryController extends Controller
 {
-    // =========================================================================
-    // SALARY CALCULATION RULES (used everywhere for consistency)
-    //
-    //   gross_salary  = basic_salary + allowances
-    //   net_salary    = gross_salary - deductions
-    //   pending       = salaries where payment_status = 'pending'
-    //   paid          = salaries where payment_status = 'paid'
-    //
-    // Salary model expected columns:
-    //   id, staff_id, month (Y-m), basic_salary, allowances, deductions,
-    //   net_salary, payment_date, payment_method, payment_status (paid|pending),
-    //   notes, created_at, updated_at
-    //
-    // Staff model expected columns:
-    //   id, first_name, last_name, designation, department, basic_salary
-    // =========================================================================
-
-    // ── INDEX ─────────────────────────────────────────────────────────────────
+    /**
+     * Display salary dashboard
+     */
     public function index(Request $request)
     {
-        $query = Salary::with('staff')
-            ->when($request->employee_id, fn($q) => $q->where('staff_id', $request->employee_id))
-            ->when($request->month,       fn($q) => $q->where('month',    $request->month))
-            ->when($request->status,      fn($q) => $q->where('payment_status', $request->status))
-            ->latest('month');
+        $staff = Staff::with(['category'])
+                     ->active()
+                     ->orderBy('first_name')
+                     ->get();
 
-        $salaries = $query->paginate(20)->withQueryString();
+        $months = $this->getMonthsList();
+        $selectedMonth = $request->month ?? now()->format('Y-m');
 
-        // ── Summary totals (respect active filters) ──────────────────────────
-        $filteredIds = (clone $query)->pluck('id');
+        $salaries = Salary::with(['staff'])
+                         ->where('month', $selectedMonth)
+                         ->get()
+                         ->keyBy('staff_id');
 
-        $summary = Salary::whereIn('id', $filteredIds)
-            ->selectRaw("
-                COUNT(*)                                        AS total_count,
-                SUM(basic_salary)                               AS total_basic,
-                SUM(allowances)                                 AS total_allowances,
-                SUM(deductions)                                 AS total_deductions,
-                SUM(net_salary)                                 AS total_net,
-                SUM(CASE WHEN payment_status='paid'    THEN net_salary ELSE 0 END) AS total_paid,
-                SUM(CASE WHEN payment_status='pending' THEN net_salary ELSE 0 END) AS total_pending,
-                COUNT(CASE WHEN payment_status='paid'    THEN 1 END)               AS count_paid,
-                COUNT(CASE WHEN payment_status='pending' THEN 1 END)               AS count_pending
-            ")
-            ->first();
-
-        // ── Distinct months for filter dropdown ───────────────────────────────
-        $months = Salary::select('month')
-            ->distinct()
-            ->orderByDesc('month')
-            ->get();
-
-        // ── Employees for filter dropdown ─────────────────────────────────────
-        $employees = Staff::orderBy('first_name')->get();
-
-        // ── Monthly trend (last 12 months) for chart ──────────────────────────
-        $trend = Salary::select(
-                'month',
-                DB::raw('SUM(net_salary) as total'),
-                DB::raw('SUM(CASE WHEN payment_status="paid" THEN net_salary ELSE 0 END) as paid'),
-                DB::raw('SUM(CASE WHEN payment_status="pending" THEN net_salary ELSE 0 END) as pending')
-            )
-            ->where('month', '>=', now()->subMonths(11)->format('Y-m'))
-            ->groupBy('month')
-            ->orderBy('month')
+        // Get attendance summaries for the selected month
+        $attendanceSummaries = AttendanceSummary::where('month', $selectedMonth)
             ->get()
-            ->map(fn($r) => [
-                'month'   => Carbon::createFromFormat('Y-m', $r->month)->format('M Y'),
-                'total'   => (float) $r->total,
-                'paid'    => (float) $r->paid,
-                'pending' => (float) $r->pending,
-            ]);
+            ->keyBy('staff_id');
 
         return view('admin.salaries.index', compact(
-            'salaries', 'employees', 'months', 'summary', 'trend'
+            'staff', 
+            'months', 
+            'selectedMonth', 
+            'salaries',
+            'attendanceSummaries'
         ));
     }
 
-    // ── CREATE ────────────────────────────────────────────────────────────────
-    public function create()
-    {
-        $employees = Staff::orderBy('first_name')->get();
-        return view('admin.salaries.create', compact('employees'));
-    }
-
-    // ── STORE ─────────────────────────────────────────────────────────────────
-    public function store(Request $request)
-    {
-        $data = $request->validate([
-            'staff_id'       => 'required|exists:staff,id',
-            'month'          => 'required|date_format:Y-m',
-            'basic_salary'   => 'required|numeric|min:0',
-            'allowances'     => 'required|numeric|min:0',
-            'deductions'     => 'required|numeric|min:0',
-            'payment_date'   => 'required|date',
-            'payment_method' => 'required|in:bank,cash,cheque',
-            'payment_status' => 'required|in:paid,pending',
-            'notes'          => 'nullable|string|max:500',
-        ]);
-
-        // Prevent duplicate for same staff + month
-        $exists = Salary::where('staff_id', $data['staff_id'])
-            ->where('month', $data['month'])
-            ->exists();
-
-        if ($exists) {
-            return back()->withErrors(['month' => 'Salary for this employee and month already exists.'])->withInput();
-        }
-
-        $data['net_salary'] = $data['basic_salary'] + $data['allowances'] - $data['deductions'];
-
-        Salary::create($data);
-
-        return redirect()->route('admin.salaries.index')
-            ->with('success', 'Salary record created successfully.');
-    }
-
-    // ── SHOW ──────────────────────────────────────────────────────────────────
-    public function show(Salary $salary)
-    {
-        $salary->load('staff');
-
-        // History for this employee (last 12 months)
-        $history = Salary::where('staff_id', $salary->staff_id)
-            ->orderByDesc('month')
-            ->limit(12)
-            ->get()
-            ->map(fn($s) => [
-                'month'          => Carbon::createFromFormat('Y-m', $s->month)->format('M Y'),
-                'basic_salary'   => (float) $s->basic_salary,
-                'allowances'     => (float) $s->allowances,
-                'deductions'     => (float) $s->deductions,
-                'net_salary'     => (float) $s->net_salary,
-                'payment_status' => $s->payment_status,
-                'payment_date'   => optional(Carbon::parse($s->payment_date))->format('d M Y'),
-                'is_current'     => $s->id === $salary->id,
-            ]);
-
-        // YTD totals for this employee
-        $ytd = Salary::where('staff_id', $salary->staff_id)
-            ->where('month', 'like', Carbon::now()->year . '-%')
-            ->selectRaw("
-                SUM(basic_salary) as ytd_basic,
-                SUM(allowances)   as ytd_allowances,
-                SUM(deductions)   as ytd_deductions,
-                SUM(net_salary)   as ytd_net
-            ")
-            ->first();
-
-        return view('admin.salaries.show', compact('salary', 'history', 'ytd'));
-    }
-
-    // ── EDIT ──────────────────────────────────────────────────────────────────
-    public function edit(Salary $salary)
-    {
-        $salary->load('staff');
-        $employees = Staff::orderBy('first_name')->get();
-        return view('admin.salaries.edit', compact('salary', 'employees'));
-    }
-
-    // ── UPDATE ────────────────────────────────────────────────────────────────
-    public function update(Request $request, Salary $salary)
-    {
-        $data = $request->validate([
-            'basic_salary'   => 'required|numeric|min:0',
-            'allowances'     => 'required|numeric|min:0',
-            'deductions'     => 'required|numeric|min:0',
-            'payment_date'   => 'required|date',
-            'payment_method' => 'required|in:bank,cash,cheque',
-            'payment_status' => 'required|in:paid,pending',
-            'notes'          => 'nullable|string|max:500',
-        ]);
-
-        $data['net_salary'] = $data['basic_salary'] + $data['allowances'] - $data['deductions'];
-
-        $salary->update($data);
-
-        return redirect()->route('admin.salaries.index')
-            ->with('success', 'Salary record updated successfully.');
-    }
-
-    // ── DESTROY ───────────────────────────────────────────────────────────────
-    public function destroy(Salary $salary)
-    {
-        $salary->delete();
-        return back()->with('success', 'Salary record deleted.');
-    }
-
-    // ── GENERATE PAYROLL (bulk) ───────────────────────────────────────────────
+    /**
+     * Generate payroll for all staff
+     */
     public function generatePayroll(Request $request)
     {
-        $data = $request->validate([
-            'month'          => 'required|date_format:Y-m',
-            'payment_date'   => 'required|date',
-            'payment_method' => 'required|in:bank,cash,cheque',
-            'payment_status' => 'required|in:paid,pending',
-        ]);
-
-        $staff = Staff::all();
-        $created = 0;
-        $skipped = 0;
-
-        foreach ($staff as $employee) {
-            $exists = Salary::where('staff_id', $employee->id)
-                ->where('month', $data['month'])
-                ->exists();
-
-            if ($exists) {
-                $skipped++;
-                continue;
+        $month = $request->month ?? now()->format('Y-m');
+        $year = (int) substr($month, 0, 4);
+        $monthNum = (int) substr($month, 5, 2);
+        
+        try {
+            $results = SalaryCalculator::processPayroll($year, $monthNum, $request->payment_method ?? 'bank');
+            
+            $message = "Payroll processed for {$results['success']} employees in {$month}.";
+            if ($results['failed'] > 0) {
+                $message .= " Failed: {$results['failed']}. Errors: " . implode('; ', $results['errors']);
             }
-
-            $basic      = $employee->basic_salary ?? 0;
-            $allowances = $employee->allowances   ?? 0;
-            $deductions = $employee->deductions   ?? 0;
-            $net        = $basic + $allowances - $deductions;
-
-            Salary::create([
-                'staff_id'       => $employee->id,
-                'month'          => $data['month'],
-                'basic_salary'   => $basic,
-                'allowances'     => $allowances,
-                'deductions'     => $deductions,
-                'net_salary'     => $net,
-                'payment_date'   => $data['payment_date'],
-                'payment_method' => $data['payment_method'],
-                'payment_status' => $data['payment_status'],
-            ]);
-
-            $created++;
+            
+            return redirect()->route('admin.salaries.index', ['month' => $month])
+                            ->with('success', $message);
+                            
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Failed to process payroll: ' . $e->getMessage());
         }
-
-        $msg = "Payroll generated: {$created} records created.";
-        if ($skipped > 0) $msg .= " {$skipped} skipped (already exist).";
-
-        return redirect()->route('admin.salaries.index')->with('success', $msg);
     }
 
-    // ── MARK AS PAID (quick action) ───────────────────────────────────────────
-    public function markPaid(Salary $salary)
+    /**
+     * Calculate salary for an individual staff member
+     */
+    public function calculateIndividual(Request $request, $staffId)
     {
+        $month = $request->month ?? now()->format('Y-m');
+        $year = (int) substr($month, 0, 4);
+        $monthNum = (int) substr($month, 5, 2);
+        
+        try {
+            $staff = Staff::findOrFail($staffId);
+            $calculator = new SalaryCalculator($staff, $year, $monthNum);
+            $salary = $calculator->saveSalaryRecord();
+            
+            return redirect()->route('admin.salaries.index', ['month' => $month])
+                            ->with('success', "Salary calculated for {$staff->full_name}");
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Failed to calculate salary: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Show salary details
+     */
+    public function show($id)
+    {
+        $salary = Salary::with(['staff', 'approvedBy'])->findOrFail($id);
+        $attendanceSummary = AttendanceSummary::where('staff_id', $salary->staff_id)
+            ->where('month', $salary->month)
+            ->first();
+
+        return view('admin.salaries.show', compact('salary', 'attendanceSummary'));
+    }
+
+    /**
+     * Show mark paid form
+     */
+    public function markPaidForm($id)
+    {
+        $salary = Salary::with(['staff'])->findOrFail($id);
+        return view('admin.salaries.mark-paid', compact('salary'));
+    }
+
+    /**
+     * Update salary as paid
+     */
+    public function markPaidUpdate(Request $request, $id)
+    {
+        $request->validate([
+            'payment_date' => 'required|date',
+            'payment_method' => 'required|in:bank,cash,cheque',
+            'transaction_ref' => 'nullable|string|max:255',
+            'remarks' => 'nullable|string|max:500',
+        ]);
+
+        $salary = Salary::findOrFail($id);
         $salary->update([
             'payment_status' => 'paid',
-            'payment_date'   => now()->toDateString(),
+            'payment_date' => $request->payment_date,
+            'payment_method' => $request->payment_method,
+            'transaction_ref' => $request->transaction_ref,
+            'remarks' => $request->remarks,
+            'approved_by' => auth()->id(),
+            'approved_at' => now(),
         ]);
-        return back()->with('success', 'Salary marked as paid.');
+
+        return redirect()->route('admin.salaries.index')
+                        ->with('success', "Salary marked as paid for {$salary->staff->full_name}");
     }
 
-    // ── EXPORT CSV ────────────────────────────────────────────────────────────
+    /**
+     * Preview salary before saving
+     */
+    public function preview($staffId, Request $request)
+    {
+        $month = $request->month ?? now()->format('Y-m');
+        $year = (int) substr($month, 0, 4);
+        $monthNum = (int) substr($month, 5, 2);
+        
+        $staff = Staff::findOrFail($staffId);
+        $calculator = new SalaryCalculator($staff, $year, $monthNum);
+        $calculated = $calculator->calculate();
+        
+        return view('admin.salaries.preview', compact('staff', 'calculated', 'month'));
+    }
+
+    /**
+     * Export payroll to CSV
+     */
     public function export(Request $request)
     {
-        $query = Salary::with('staff')
-            ->when($request->employee_id, fn($q) => $q->where('staff_id', $request->employee_id))
-            ->when($request->month,       fn($q) => $q->where('month', $request->month))
-            ->when($request->status,      fn($q) => $q->where('payment_status', $request->status))
-            ->orderByDesc('month')
-            ->get();
+        $month = $request->month ?? now()->format('Y-m');
+        $salaries = Salary::with(['staff'])
+                         ->where('month', $month)
+                         ->get();
 
-        $filename = 'salary_export_' . now()->format('Ymd_His') . '.csv';
         $headers = [
-            'Content-Type'        => 'text/csv',
-            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=payroll_{$month}.csv",
         ];
 
-        $callback = function () use ($query) {
+        $callback = function() use ($salaries, $month) {
             $handle = fopen('php://output', 'w');
+            fputcsv($handle, ['Payroll Report - ' . $month]);
+            fputcsv($handle, []);
             fputcsv($handle, [
-                'Employee', 'Month', 'Basic Salary', 'Allowances',
-                'Deductions', 'Net Salary', 'Payment Date', 'Method', 'Status',
+                'Employee ID', 'Employee Name', 'Designation', 'Basic Salary',
+                'Days Present', 'Days Absent', 'Days Late', 'Allowances',
+                'Attendance Bonus', 'Overtime Pay', 'Absent Deduction',
+                'Late Deduction', 'Leave Deduction', 'Penalties',
+                'Total Deductions', 'Tax', 'PF', 'Net Salary', 'Status'
             ]);
-            foreach ($query as $s) {
+
+            foreach ($salaries as $salary) {
+                $staff = $salary->staff;
+                $totalDeductions = $salary->deductions + $salary->penalties + $salary->leave_deductions;
+                
                 fputcsv($handle, [
-                    $s->staff->first_name . ' ' . $s->staff->last_name,
-                    $s->month,
-                    $s->basic_salary,
-                    $s->allowances,
-                    $s->deductions,
-                    $s->net_salary,
-                    $s->payment_date,
-                    $s->payment_method,
-                    $s->payment_status,
+                    $staff->employee_id ?? 'N/A',
+                    $staff->full_name ?? 'N/A',
+                    $staff->designation ?? 'N/A',
+                    number_format($salary->basic_salary, 2),
+                    $salary->days_present ?? 0,
+                    $salary->days_absent ?? 0,
+                    $salary->days_late ?? 0,
+                    number_format($salary->allowances, 2),
+                    number_format($salary->attendance_bonus ?? 0, 2),
+                    number_format($salary->overtime_pay ?? 0, 2),
+                    number_format($salary->deductions, 2),
+                    number_format(0, 2),
+                    number_format($salary->leave_deductions ?? 0, 2),
+                    number_format($salary->penalties ?? 0, 2),
+                    number_format($totalDeductions, 2),
+                    number_format($salary->tax, 2),
+                    number_format($salary->pf_employee, 2),
+                    number_format($salary->net_salary, 2),
+                    ucfirst($salary->payment_status),
                 ]);
             }
+
             fclose($handle);
         };
 
         return response()->stream($callback, 200, $headers);
     }
-    // Show the "Mark as Paid" form
-public function markPaidForm(Salary $salary)
-{
-    return view('admin.salaries.mark-paid', compact('salary'));
-}
 
-// Process the "Mark as Paid" submission
-public function markPaidUpdate(Request $request, Salary $salary)
-{
-    $request->validate([
-        'payment_date'   => 'required|date',
-        'payment_method' => 'required|in:bank,cash,cheque',
-        'transaction_ref' => 'nullable|string|max:100',
-        'remarks'        => 'nullable|string|max:500',
-    ]);
+    // =============================================
+    // SALARY TEMPLATES
+    // =============================================
 
-    $salary->update([
-        'payment_status'   => 'paid',
-        'payment_date'     => $request->payment_date,
-        'payment_method'   => $request->payment_method,
-        'transaction_ref'  => $request->transaction_ref,
-        'notes'            => $request->remarks, // assuming 'notes' column exists
-    ]);
+    /**
+     * Display salary templates
+     */
+    public function templates()
+    {
+        $templates = SalaryTemplate::orderBy('name')->get();
+        return view('admin.salaries.templates', compact('templates'));
+    }
 
-    return redirect()->route('admin.salaries.index')
-        ->with('success', 'Salary marked as paid successfully.');
-}
+    /**
+     * Show create template form
+     */
+    public function createTemplate()
+    {
+        return view('admin.salaries.create-template');
+    }
+
+    /**
+     * Store a new template
+     */
+    public function storeTemplate(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255|unique:salary_templates',
+            'basic_salary' => 'required|numeric|min:0',
+            'allowances' => 'nullable|numeric|min:0',
+            'medical_allowance' => 'nullable|numeric|min:0',
+            'transport_allowance' => 'nullable|numeric|min:0',
+            'pf_percentage' => 'nullable|numeric|min:0|max:100',
+            'tax_percentage' => 'nullable|numeric|min:0|max:100',
+            'description' => 'nullable|string',
+        ]);
+
+        SalaryTemplate::create([
+            'name' => $request->name,
+            'description' => $request->description,
+            'basic_salary' => $request->basic_salary,
+            'allowances' => $request->allowances ?? 0,
+            'medical_allowance' => $request->medical_allowance ?? 0,
+            'transport_allowance' => $request->transport_allowance ?? 0,
+            'pf_percentage' => $request->pf_percentage ?? 5,
+            'tax_percentage' => $request->tax_percentage ?? 0,
+            'is_active' => $request->is_active ?? true,
+        ]);
+
+        return redirect()->route('admin.salaries.templates')
+                        ->with('success', 'Salary template created successfully!');
+    }
+
+    /**
+     * Edit template (AJAX)
+     */
+    public function editTemplate($id)
+    {
+        $template = SalaryTemplate::findOrFail($id);
+        return response()->json($template);
+    }
+
+    /**
+     * Update template
+     */
+    public function updateTemplate(Request $request, $id)
+    {
+        $template = SalaryTemplate::findOrFail($id);
+        
+        $request->validate([
+            'name' => 'required|string|max:255|unique:salary_templates,name,' . $id,
+            'basic_salary' => 'required|numeric|min:0',
+            'allowances' => 'nullable|numeric|min:0',
+            'medical_allowance' => 'nullable|numeric|min:0',
+            'transport_allowance' => 'nullable|numeric|min:0',
+            'pf_percentage' => 'nullable|numeric|min:0|max:100',
+            'tax_percentage' => 'nullable|numeric|min:0|max:100',
+            'description' => 'nullable|string',
+        ]);
+
+        $template->update([
+            'name' => $request->name,
+            'description' => $request->description,
+            'basic_salary' => $request->basic_salary,
+            'allowances' => $request->allowances ?? 0,
+            'medical_allowance' => $request->medical_allowance ?? 0,
+            'transport_allowance' => $request->transport_allowance ?? 0,
+            'pf_percentage' => $request->pf_percentage ?? 5,
+            'tax_percentage' => $request->tax_percentage ?? 0,
+            'is_active' => $request->is_active ?? true,
+        ]);
+
+        return redirect()->route('admin.salaries.templates')
+                        ->with('success', 'Salary template updated successfully!');
+    }
+
+    /**
+     * Delete template
+     */
+    public function destroyTemplate($id)
+    {
+        $template = SalaryTemplate::findOrFail($id);
+        
+        // Check if template is being used
+        $usedCount = Staff::where('basic_salary', $template->basic_salary)->count();
+        if ($usedCount > 0) {
+            return redirect()->route('admin.salaries.templates')
+                            ->with('error', 'Cannot delete template as it is being used by ' . $usedCount . ' staff members.');
+        }
+        
+        $template->delete();
+
+        return redirect()->route('admin.salaries.templates')
+                        ->with('success', 'Salary template deleted successfully!');
+    }
+
+    /**
+     * Apply template to staff
+     */
+    public function applyTemplate(Request $request)
+    {
+        $request->validate([
+            'template_id' => 'required|exists:salary_templates,id',
+            'staff_ids' => 'required|array',
+            'staff_ids.*' => 'exists:staff,id',
+        ]);
+
+        $template = SalaryTemplate::findOrFail($request->template_id);
+        $staffIds = $request->staff_ids;
+
+        Staff::whereIn('id', $staffIds)->update([
+            'basic_salary' => $template->basic_salary,
+            'allowances' => $template->allowances,
+            'medical_allowance' => $template->medical_allowance,
+            'transport_allowance' => $template->transport_allowance,
+            'pf_percentage' => $template->pf_percentage,
+        ]);
+
+        return redirect()->route('admin.salaries.templates')
+                        ->with('success', 'Salary template applied to ' . count($staffIds) . ' staff members.');
+    }
+
+    /**
+     * Get months list for dropdown
+     */
+    private function getMonthsList()
+    {
+        $months = [];
+        for ($i = 0; $i < 12; $i++) {
+            $date = now()->subMonths($i);
+            $months[$date->format('Y-m')] = $date->format('F Y');
+        }
+        return $months;
+    }
 }

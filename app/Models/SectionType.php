@@ -7,26 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class SectionType extends Model
 {
-    use HasFactory;
-
-    protected $fillable = [
-        'name',
-        'slug',
-    ];
-
-    /**
-     * A section type can have many sections.
-     */
-    public function sections()
-    {
-        return $this->hasMany(Section::class);
-    }
-
-    /**
-     * A section type can have many fields.
-     */
-    public function fields()
-    {
-        return $this->hasMany(SectionField::class);
-    }
+    protected $fillable = ['name', 'slug'];
+    public function sections() { return $this->hasMany(CmsSection::class); }
+    public function fields() { return $this->hasMany(SectionField::class); }
 }

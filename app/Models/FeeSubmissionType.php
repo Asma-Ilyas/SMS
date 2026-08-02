@@ -1,5 +1,4 @@
 <?php
-// app/Models/FeeSubmissionType.php
 
 namespace App\Models;
 
@@ -17,7 +16,7 @@ class FeeSubmissionType extends Model
         'period',
         'amount',
         'description',
-        'is_active'
+        'is_active',
     ];
 
     protected $casts = [
@@ -25,26 +24,33 @@ class FeeSubmissionType extends Model
         'is_active' => 'boolean',
     ];
 
-    // Relationship: this fee type can have many student submissions
-    public function studentSubmissions()
-    {
-        return $this->hasMany(StudentFeeSubmission::class, 'fee_submission_type_id');
-    }
-
-    // Scope for active only
+    /**
+     * Scope to get only active fee types
+     */
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
     }
 
-    // Get period label
+    /**
+     * Get period label
+     */
     public function getPeriodLabelAttribute()
     {
-        return ucfirst(str_replace('_', ' ', $this->period));
+        $labels = [
+            'monthly' => 'Monthly',
+            'quarterly' => 'Quarterly',
+            'annually' => 'Annually',
+            'one_time' => 'One Time',
+        ];
+        return $labels[$this->period] ?? ucfirst($this->period);
     }
 
-    public function installments()
-{
-    return $this->hasMany(StudentFeeInstallment::class);
-}
+    /**
+     * Get status label
+     */
+    public function getStatusLabelAttribute()
+    {
+        return $this->is_active ? '✅ Active' : '❌ Inactive';
+    }
 }

@@ -50,6 +50,10 @@
                         <td class="px-6 py-4 whitespace-nowrap text-right space-x-2">
                             <a href="{{ route('admin.staff.show', $member) }}" class="text-blue-600 hover:text-blue-900">View</a>
                             <a href="{{ route('admin.staff.edit', $member) }}" class="text-yellow-600 hover:text-yellow-900">Edit</a>
+                            {{-- Availability link (only for teachers, but we show for all staff) --}}
+                            <a href="{{ route('admin.teacher-availability.index', $member) }}" class="text-indigo-600 hover:text-indigo-900" title="Set Availability">
+                                Availability
+                            </a>
                             <form action="{{ route('admin.staff.destroy', $member) }}" method="POST" class="inline" onsubmit="return confirm('Delete this staff member?')">
                                 @csrf @method('DELETE')
                                 <button type="submit" class="text-red-600 hover:text-red-900">Delete</button>

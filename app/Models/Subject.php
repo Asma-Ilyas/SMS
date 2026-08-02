@@ -7,25 +7,18 @@ use Illuminate\Database\Eloquent\Model;
 class Subject extends Model
 {
     protected $fillable = ['name', 'code', 'description', 'type', 'is_active'];
-
     protected $casts = ['is_active' => 'boolean'];
-
-    public function teachers()
-    {
-        return $this->belongsToMany(Staff::class, 'class_subject_teacher', 'subject_id', 'teacher_id')
-                    ->withPivot('class_id', 'academic_session_id', 'max_weekly_periods', 'term')
-                    ->withTimestamps();
-    }
-
-    public function classes()
-    {
-        return $this->belongsToMany(Classes::class, 'class_subject_teacher', 'subject_id', 'class_id')
-                    ->withPivot('teacher_id', 'academic_session_id', 'max_weekly_periods', 'term')
-                    ->withTimestamps();
-    }
-
-    public function marks()
+    public function teacherSubjects() { return $this->hasMany(TeacherSubject::class); }
+    public function subjectAssignments() { return $this->hasMany(SubjectAssignment::class); }
+    public function timetableEntries() { return $this->hasMany(TimetableEntry::class); }
+    public function examMarks() { return $this->hasMany(ExamMark::class); }
+    public function assignments()
 {
-    return $this->hasMany(ExamMark::class, 'subject_id');
+    return $this->hasMany(SubjectAssignment::class);
+}
+
+public function classSections()
+{
+    return $this->belongsToMany(ClassSection::class, 'subject_assignments', 'subject_id', 'class_section_id');
 }
 }

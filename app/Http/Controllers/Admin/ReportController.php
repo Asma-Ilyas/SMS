@@ -3,239 +3,203 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\StudentFeeSubmission; // ← Changed from StudentFeeInstallment
 use App\Models\Student;
-use App\Models\Classes;
-use App\Models\StudentFeeInstallment;
+use App\Models\ClassSection;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Carbon\Carbon;
 
 class ReportController extends Controller
 {
-    // =========================================================================
-    // SINGLE SOURCE OF TRUTH — student_fee_installments only.
-    //
-    // Definitions (identical across index, class breakdown, student list,
-    // and student detail — so every number always cross-checks):
-    //
-    //   total_due      = SUM(amount)
-    //   total_paid     = SUM(paid_amount)
-    //   outstanding    = SUM(remaining)   where per-row remaining is:
-    //                      status=paid    → 0
-    //                      status=partial → amount - paid_amount
-    //                      status=pending → amount
-    //   overdue        = outstanding WHERE due_date < today
-    //   collection_pct = total_paid / total_due × 100
-    //
-    // Note: total_paid + outstanding = total_due  ✓  (always balances)
-    // =========================================================================
-
+    /**
+     * Display fee reports dashboard
+     */
     public function index(Request $request)
     {
-        $selectedClassId = $request->integer('class_id') ?: null;
-        $selectedSection = $request->get('section')      ?: null;
-
-        $classes  = Classes::orderBy('id')->get();
-        $sections = collect();
-
+        $classSections = ClassSection::with('class.grade')->orderBy('class_id')->orderBy('section_name')->get();
+        
         // ── 1. WHOLE-SCHOOL SUMMARY ──────────────────────────────────────────
-        $totalDue  = (float) StudentFeeInstallment::sum('amount');
-        $totalPaid = (float) StudentFeeInstallment::sum('paid_amount');
-
-        $totalOutstanding = (float) StudentFeeInstallment::whereIn('status', ['pending', 'partial'])
+        // FIXED: Changed from StudentFeeInstallment to StudentFeeSubmission
+        $totalDue  = (float) StudentFeeSubmission::sum('amount');
+        $totalPaid = (float) StudentFeeSubmission::sum('paid_amount');
+        
+        // Calculate outstanding amount
+        $totalOutstanding = (float) StudentFeeSubmission::whereIn('status', ['pending', 'partial'])
             ->selectRaw("SUM(CASE
                 WHEN status = 'pending' THEN amount
                 WHEN status = 'partial' THEN amount - paid_amount
                 ELSE 0 END) as v")
-            ->value('v');
+            ->value('v') ?? 0;
 
-        $totalOverdue = (float) StudentFeeInstallment::whereIn('status', ['pending', 'partial'])
+        // Calculate overdue amount
+        $totalOverdue = (float) StudentFeeSubmission::whereIn('status', ['pending', 'partial'])
             ->where('due_date', '<', Carbon::today())
             ->selectRaw("SUM(CASE
                 WHEN status = 'pending' THEN amount
                 WHEN status = 'partial' THEN amount - paid_amount
                 ELSE 0 END) as v")
-            ->value('v');
+            ->value('v') ?? 0;
 
-        $collectionRate = $totalDue > 0 ? round($totalPaid / $totalDue * 100, 1) : 0;
-
-        // ── 2. CLASS / SECTION BREAKDOWN ─────────────────────────────────────
-        $reportData = [];
-
-        $classListQuery = Classes::orderBy('id');
-        if ($selectedClassId) {
-            $classListQuery->where('id', $selectedClassId);
-        }
-
-        foreach ($classListQuery->get() as $class) {
-            $studentIds = Student::where('class_id', $class->id)
-                ->when($selectedSection, fn($q) => $q->where('section', $selectedSection))
-                ->pluck('id');
-
-            if ($studentIds->isEmpty()) continue;
-
-            $classDue = (float) StudentFeeInstallment::whereIn('student_id', $studentIds)
-                ->sum('amount');
-
-            $classPaid = (float) StudentFeeInstallment::whereIn('student_id', $studentIds)
-                ->sum('paid_amount');
-
-            $classOutstanding = (float) StudentFeeInstallment::whereIn('student_id', $studentIds)
-                ->whereIn('status', ['pending', 'partial'])
-                ->selectRaw("SUM(CASE
-                    WHEN status = 'pending' THEN amount
-                    WHEN status = 'partial' THEN amount - paid_amount
-                    ELSE 0 END) as v")
-                ->value('v');
-
-            $reportData[] = [
-                'class_id'       => $class->id,
-                'class'          => $class->full_name,
-                'section'        => $selectedSection ?: 'All Sections',
-                'students'       => $studentIds->count(),
-                'total_due'      => $classDue,
-                'paid'           => $classPaid,
-                'outstanding'    => $classOutstanding,
-                'collection_pct' => $classDue > 0 ? round($classPaid / $classDue * 100, 1) : 0,
+        // ── 2. CLASS-WISE BREAKDOWN ───────────────────────────────────────────
+        $classWiseData = [];
+        foreach ($classSections as $section) {
+            $studentIds = Student::where('class_section_id', $section->id)->pluck('id');
+            
+            if ($studentIds->isEmpty()) {
+                continue;
+            }
+            
+            $sectionDue = (float) StudentFeeSubmission::whereIn('student_id', $studentIds)->sum('amount');
+            $sectionPaid = (float) StudentFeeSubmission::whereIn('student_id', $studentIds)->sum('paid_amount');
+            $sectionOutstanding = $sectionDue - $sectionPaid;
+            
+            $classWiseData[] = [
+                'section' => $section,
+                'due' => $sectionDue,
+                'paid' => $sectionPaid,
+                'outstanding' => $sectionOutstanding,
+                'collection_percentage' => $sectionDue > 0 ? round(($sectionPaid / $sectionDue) * 100, 2) : 0,
+                'student_count' => $studentIds->count(),
             ];
         }
 
-        // ── 3. STUDENT LIST (only when a class is selected) ──────────────────
-        $studentRows = collect();
+        // ── 3. STUDENT-WISE DETAILS ───────────────────────────────────────────
+        $query = StudentFeeSubmission::with(['student', 'feeSubmissionType']);
+        
+        if ($request->filled('class_section_id')) {
+            $studentIds = Student::where('class_section_id', $request->class_section_id)->pluck('id');
+            $query->whereIn('student_id', $studentIds);
+        }
+        
+        if ($request->filled('student_id')) {
+            $query->where('student_id', $request->student_id);
+        }
+        
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+        
+        $studentWise = $query->orderBy('due_date', 'desc')->paginate(20);
 
-        if ($selectedClassId) {
-            $sections = Student::where('class_id', $selectedClassId)
-                ->distinct()->orderBy('section')->pluck('section');
-
-            $studentIds = Student::where('class_id', $selectedClassId)
-                ->when($selectedSection, fn($q) => $q->where('section', $selectedSection))
-                ->pluck('id');
-
-            // 4 batch queries — no N+1
-            $dueMap = StudentFeeInstallment::whereIn('student_id', $studentIds)
-                ->select('student_id', DB::raw('SUM(amount) as v'))
-                ->groupBy('student_id')->pluck('v', 'student_id');
-
-            $paidMap = StudentFeeInstallment::whereIn('student_id', $studentIds)
-                ->select('student_id', DB::raw('SUM(paid_amount) as v'))
-                ->groupBy('student_id')->pluck('v', 'student_id');
-
-            $outstandingMap = StudentFeeInstallment::whereIn('student_id', $studentIds)
-                ->whereIn('status', ['pending', 'partial'])
-                ->select('student_id', DB::raw("SUM(CASE
-                    WHEN status = 'pending' THEN amount
-                    WHEN status = 'partial' THEN amount - paid_amount
-                    ELSE 0 END) as v"))
-                ->groupBy('student_id')->pluck('v', 'student_id');
-
-            $lastPayMap = StudentFeeInstallment::whereIn('student_id', $studentIds)
-                ->whereNotNull('payment_date')
-                ->select('student_id', DB::raw('MAX(payment_date) as v'))
-                ->groupBy('student_id')->pluck('v', 'student_id');
-
-            $studentRows = Student::where('class_id', $selectedClassId)
-                ->when($selectedSection, fn($q) => $q->where('section', $selectedSection))
-                ->orderBy('section')->orderBy('roll_number')
-                ->get()
-                ->map(function (Student $s) use ($dueMap, $paidMap, $outstandingMap, $lastPayMap) {
-                    $due         = (float) ($dueMap[$s->id]         ?? 0);
-                    $paid        = (float) ($paidMap[$s->id]        ?? 0);
-                    $outstanding = (float) ($outstandingMap[$s->id] ?? 0);
-                    return [
-                        'id'             => $s->id,
-                        'full_name'      => $s->full_name,
-                        'roll_number'    => $s->roll_number       ?? '-',
-                        'section'        => $s->section           ?? '-',
-                        'admission_no'   => $s->admission_number  ?? '-',
-                        'total_due'      => $due,
-                        'total_paid'     => $paid,
-                        'outstanding'    => $outstanding,
-                        'collection_pct' => $due > 0 ? round($paid / $due * 100, 1) : 0,
-                        'last_payment'   => isset($lastPayMap[$s->id])
-                            ? Carbon::parse($lastPayMap[$s->id])->format('d M Y')
-                            : null,
-                        'pay_status'     => $outstanding <= 0 ? 'paid'
-                            : ($paid > 0 ? 'partial' : 'pending'),
-                    ];
-                });
+        // ── 4. FILTER OPTIONS ──────────────────────────────────────────────────
+        $students = collect();
+        if ($request->filled('class_section_id')) {
+            $students = Student::where('class_section_id', $request->class_section_id)
+                ->orderBy('first_name')
+                ->get();
         }
 
-        return view('admin.reports.fee-index', compact(
-            'classes', 'sections',
-            'selectedClassId', 'selectedSection',
-            'totalDue', 'totalPaid', 'totalOutstanding', 'totalOverdue', 'collectionRate',
-            'reportData', 'studentRows'
+        // ── 5. MONTHLY COLLECTION TREND ──────────────────────────────────────
+        $monthlyData = StudentFeeSubmission::select(
+                DB::raw('DATE_FORMAT(payment_date, "%Y-%m") as month'),
+                DB::raw('SUM(paid_amount) as collected')
+            )
+            ->whereNotNull('payment_date')
+            ->where('status', 'paid')
+            ->groupBy('month')
+            ->orderBy('month', 'desc')
+            ->limit(12)
+            ->get();
+
+        // ── 6. STATUS BREAKDOWN ───────────────────────────────────────────────
+        $statusBreakdown = [
+            'paid' => StudentFeeSubmission::where('status', 'paid')->count(),
+            'partial' => StudentFeeSubmission::where('status', 'partial')->count(),
+            'pending' => StudentFeeSubmission::where('status', 'pending')->count(),
+        ];
+
+        return view('admin.fee-reports.index', compact(
+            'classSections',
+            'totalDue',
+            'totalPaid',
+            'totalOutstanding',
+            'totalOverdue',
+            'classWiseData',
+            'studentWise',
+            'students',
+            'monthlyData',
+            'statusBreakdown'
         ));
     }
 
-    // =========================================================================
-    // STUDENT DETAIL
-    // =========================================================================
-    public function studentDetails(int $studentId)
+    /**
+     * Show detailed report for a specific student
+     */
+    public function studentDetails($studentId)
     {
-        $student = Student::with(['class', 'feeInstallments.feeType'])
-            ->findOrFail($studentId);
+        $student = Student::with(['classSection.class.grade'])->findOrFail($studentId);
+        
+        $installments = StudentFeeSubmission::where('student_id', $studentId)
+            ->with(['feeSubmissionType'])
+            ->orderBy('due_date')
+            ->get();
+        
+        $summary = [
+            'total_due' => $installments->sum('amount'),
+            'total_paid' => $installments->sum('paid_amount'),
+            'outstanding' => $installments->sum('amount') - $installments->sum('paid_amount'),
+            'total_installments' => $installments->count(),
+            'paid_installments' => $installments->where('status', 'paid')->count(),
+            'pending_installments' => $installments->where('status', 'pending')->count(),
+            'partial_installments' => $installments->where('status', 'partial')->count(),
+        ];
+        
+        return view('admin.fee-reports.student', compact('student', 'installments', 'summary'));
+    }
 
-        $installments = $student->feeInstallments
-            ->sortBy('due_date')
-            ->map(function (StudentFeeInstallment $inst) {
-                $remaining = match ($inst->status) {
-                    'paid'    => 0.0,
-                    'partial' => max(0.0, (float)$inst->amount - (float)$inst->paid_amount),
-                    default   => (float) $inst->amount,
-                };
-                return [
-                    'id'             => $inst->id,
-                    'fee_type'       => $inst->feeType->name   ?? 'Fee',
-                    'period'         => $inst->feeType->period ?? '',
-                    'due_date'       => optional($inst->due_date)->format('d M Y'),
-                    'amount'         => (float) $inst->amount,
-                    'paid_amount'    => (float) $inst->paid_amount,
-                    'remaining'      => $remaining,
-                    'status'         => ucfirst($inst->status),
-                    'payment_date'   => optional($inst->payment_date)->format('d M Y'),
-                    'receipt_number' => $inst->receipt_number ?? '-',
-                    'is_overdue'     => $remaining > 0
-                                        && $inst->due_date
-                                        && $inst->due_date->isPast(),
-                ];
-            });
-
-        // All totals from installments — match index page exactly
-        $totalDue       = (float) $student->feeInstallments->sum('amount');
-        $totalPaid      = (float) $student->feeInstallments->sum('paid_amount');
-        $totalRemaining = (float) $installments->sum('remaining');
-        $collectionPct  = $totalDue > 0 ? round($totalPaid / $totalDue * 100, 1) : 0;
-
-        // Invoice / challan (extra charges — shown for reference only)
-        $invoices = collect();
-        if (method_exists($student, 'invoices')) {
-            $invoices = $student->invoices()
-                ->with('paymentMethod')
-                ->orderByDesc('due_date')
-                ->get()
-                ->map(function ($inv) {
-                    $meta = is_array($inv->metadata)
-                        ? $inv->metadata
-                        : (json_decode($inv->metadata, true) ?? []);
-                    return [
-                        'invoice_number'      => $inv->invoice_number,
-                        'amount'              => (float) $inv->amount,
-                        'due_date'            => optional($inv->due_date)->format('d M Y'),
-                        'status'              => ucfirst($inv->status),
-                        'paid_at'             => optional($inv->paid_at)->format('d M Y'),
-                        'late_fee'            => (float) ($meta['late_fee']            ?? 0),
-                        'discount'            => (float) ($meta['discount']            ?? 0),
-                        'other_charge_desc'   => $meta['other_charge_desc']            ?? null,
-                        'other_charge_amount' => (float) ($meta['other_charge_amount'] ?? 0),
-                        'bank'                => $inv->paymentMethod->name             ?? 'N/A',
-                    ];
-                });
+    /**
+     * Export fee report to CSV
+     */
+    public function export(Request $request)
+    {
+        $query = StudentFeeSubmission::with(['student', 'feeSubmissionType']);
+        
+        if ($request->filled('class_section_id')) {
+            $studentIds = Student::where('class_section_id', $request->class_section_id)->pluck('id');
+            $query->whereIn('student_id', $studentIds);
         }
+        
+        $data = $query->orderBy('due_date')->get();
 
-        return view('admin.reports.student-details', compact(
-            'student', 'installments', 'invoices',
-            'totalDue', 'totalPaid', 'totalRemaining', 'collectionPct'
-        ));
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename=fee_report_' . date('Y-m-d') . '.csv',
+        ];
+
+        $callback = function() use ($data) {
+            $handle = fopen('php://output', 'w');
+            
+            // Headers
+            fputcsv($handle, [
+                'Student Name',
+                'Admission Number',
+                'Fee Type',
+                'Installment',
+                'Amount',
+                'Paid Amount',
+                'Status',
+                'Due Date',
+                'Payment Date'
+            ]);
+
+            foreach ($data as $item) {
+                fputcsv($handle, [
+                    $item->student->full_name ?? 'N/A',
+                    $item->student->admission_number ?? 'N/A',
+                    $item->feeSubmissionType->name ?? 'N/A',
+                    $item->installment_number ?? 1,
+                    number_format($item->amount, 2),
+                    number_format($item->paid_amount, 2),
+                    ucfirst($item->status),
+                    $item->due_date ? $item->due_date->format('d-m-Y') : 'N/A',
+                    $item->payment_date ? $item->payment_date->format('d-m-Y') : 'N/A',
+                ]);
+            }
+
+            fclose($handle);
+        };
+
+        return response()->stream($callback, 200, $headers);
     }
 }

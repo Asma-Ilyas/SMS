@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CertificateType;
 use App\Models\CertificateDistribution;
 use App\Models\Student;
-use App\Models\Classes;
+use App\Models\ClassSection;        // ✅ Changed from Classes
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -75,13 +75,11 @@ class CertificateController extends Controller
 
         $data = $request->except('template_file');
         if ($request->hasFile('template_file')) {
-            // Delete old template if exists
             if ($certificateType->template_file) {
                 Storage::disk('public')->delete($certificateType->template_file);
             }
             $data['template_file'] = $request->file('template_file')->store('certificates/templates', 'public');
         } elseif ($request->remove_template == '1') {
-            // Allow removal of existing template
             if ($certificateType->template_file) {
                 Storage::disk('public')->delete($certificateType->template_file);
             }
@@ -100,11 +98,9 @@ class CertificateController extends Controller
      */
     public function destroyType(CertificateType $certificateType)
     {
-        // Delete template file if exists
         if ($certificateType->template_file) {
             Storage::disk('public')->delete($certificateType->template_file);
         }
-        // Delete all distributions (cascaded via foreign key)
         $certificateType->delete();
 
         return redirect()->route('admin.certificates.index')
@@ -113,16 +109,16 @@ class CertificateController extends Controller
 
     /**
      * Show form to distribute a certificate to a student.
+     * ✅ Now uses ClassSection instead of Classes.
      */
     public function distributeForm(CertificateType $certificateType)
-{
-    $classes = Classes::with(['grade', 'stream'])->get();
-    return view('admin.certificates.distribute', compact('certificateType', 'classes'));
-}
+    {
+        $classSections = ClassSection::with('class.grade')->get();
+        return view('admin.certificates.distribute', compact('certificateType', 'classSections'));
+    }
 
     /**
      * Process certificate distribution (issue to student).
-     * Optionally upload a custom certificate file (otherwise fallback to template).
      */
     public function distribute(Request $request, CertificateType $certificateType)
     {
@@ -140,12 +136,9 @@ class CertificateController extends Controller
             'remarks'             => $request->remarks,
         ];
 
-        // If user uploads a custom certificate, store it
         if ($request->hasFile('certificate_file')) {
             $data['certificate_file'] = $request->file('certificate_file')->store('certificates/issued', 'public');
         } else {
-            // Optionally use the template file if no custom file was provided
-            // (we store null; the download method will fallback to template)
             $data['certificate_file'] = null;
         }
 
@@ -171,12 +164,10 @@ class CertificateController extends Controller
      */
     public function download(CertificateDistribution $distribution)
     {
-        // First try to download the specific issued file
         if ($distribution->certificate_file && Storage::disk('public')->exists($distribution->certificate_file)) {
             return response()->download(storage_path('app/public/' . $distribution->certificate_file));
         }
 
-        // Fallback to the certificate type's template
         $templateFile = $distribution->certificateType->template_file;
         if ($templateFile && Storage::disk('public')->exists($templateFile)) {
             return response()->download(storage_path('app/public/' . $templateFile));
@@ -185,37 +176,46 @@ class CertificateController extends Controller
         return back()->with('error', 'No certificate file available for download.');
     }
 
-    public function getSections($classId)
-{
-    // Return distinct sections for a given class from students table
-    $sections = Student::where('class_id', $classId)->distinct()->pluck('section');
-    return response()->json($sections);
-}
+    // ------------------------------------------------------------------
+    // ✅ Updated AJAX endpoints using class_section_id
+    // ------------------------------------------------------------------
 
-public function getStudents($classId, $section)
-{
-    $students = Student::where('class_id', $classId)
-        ->where('section', $section)
-        ->get(['id', 'first_name', 'middle_name', 'last_name', 'admission_number']);
-    
-    $data = $students->map(function($student) {
-        return [
+    /**
+     * Get students by class_section_id (replaces old getSections + getStudents)
+     */
+    public function getStudentsBySection($classSectionId)
+    {
+        $students = Student::where('class_section_id', $classSectionId)
+            ->orderBy('first_name')
+            ->orderBy('last_name')
+            ->get(['id', 'first_name', 'middle_name', 'last_name', 'admission_number']);
+
+        $data = $students->map(fn($student) => [
             'id' => $student->id,
             'name' => $student->full_name,
             'admission_number' => $student->admission_number,
-        ];
-    });
-    return response()->json($data);
-}
+        ]);
 
-public function getStudentInfo($studentId)
-{
-    $student = Student::with('class.grade', 'class.stream')->findOrFail($studentId);
-    return response()->json([
-        'name' => $student->full_name,
-        'admission_number' => $student->admission_number,
-        'class' => $student->class->full_name,
-        'section' => $student->section,
-    ]);
-}
+        return response()->json($data);
+    }
+
+    /**
+     * Get full student info (now includes class section details)
+     */
+    public function getStudentInfo($studentId)
+    {
+        $student = Student::with('classSection.class.grade', 'classSection.class.stream')
+            ->findOrFail($studentId);
+
+        $classSection = $student->classSection;
+        $className = $classSection?->class?->full_name ?? 'N/A';
+        $sectionName = $classSection?->section_name ?? 'N/A';
+
+        return response()->json([
+            'name' => $student->full_name,
+            'admission_number' => $student->admission_number,
+            'class' => $className,
+            'section' => $sectionName,
+        ]);
+    }
 }

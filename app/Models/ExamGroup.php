@@ -1,4 +1,5 @@
 <?php
+// app/Models/ExamGroup.php
 
 namespace App\Models;
 
@@ -9,7 +10,9 @@ class ExamGroup extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['name', 'code', 'description', 'sort_order', 'is_active'];
+    protected $fillable = [
+        'name', 'code', 'description', 'sort_order', 'is_active'
+    ];
 
     protected $casts = [
         'is_active' => 'boolean',

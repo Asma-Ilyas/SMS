@@ -1,4 +1,5 @@
 <?php
+// app/Models/ExamMark.php
 
 namespace App\Models;
 
@@ -19,6 +20,12 @@ class ExamMark extends Model
         'remarks',
     ];
 
+    protected $casts = [
+        'marks_obtained' => 'decimal:2',
+        'max_marks' => 'decimal:2',
+        'passing_marks' => 'decimal:2',
+    ];
+
     public function exam()
     {
         return $this->belongsTo(Exam::class);
@@ -36,27 +43,13 @@ class ExamMark extends Model
 
     public function getPercentageAttribute()
     {
-        if ($this->max_marks && $this->max_marks > 0) {
-            return round(($this->marks_obtained / $this->max_marks) * 100, 2);
-        }
-        return 0;
-    }
-
-    public function getGradeAttribute()
-    {
-        $percentage = $this->percentage;
-        if ($percentage >= 90) return 'A+';
-        if ($percentage >= 80) return 'A';
-        if ($percentage >= 70) return 'B+';
-        if ($percentage >= 60) return 'B';
-        if ($percentage >= 50) return 'C';
-        if ($percentage >= 40) return 'D';
-        return 'F';
+        return $this->max_marks > 0 
+            ? round(($this->marks_obtained / $this->max_marks) * 100, 2) 
+            : 0;
     }
 
     public function getIsPassAttribute()
     {
-        $passing = $this->passing_marks ?? ($this->max_marks * 0.33);
-        return $this->marks_obtained >= $passing;
+        return $this->marks_obtained >= $this->passing_marks;
     }
 }

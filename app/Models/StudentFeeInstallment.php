@@ -25,51 +25,75 @@ class StudentFeeInstallment extends Model
     ];
 
     protected $casts = [
-        'amount' => 'decimal:2',
-        'paid_amount' => 'decimal:2',
         'due_date' => 'date',
         'payment_date' => 'date',
+        'amount' => 'decimal:2',
+        'paid_amount' => 'decimal:2',
     ];
+
+    // ========== RELATIONSHIPS ==========
 
     public function student()
     {
         return $this->belongsTo(Student::class);
     }
 
-    public function feeType()
+    public function feeSubmissionType()
     {
         return $this->belongsTo(FeeSubmissionType::class, 'fee_submission_type_id');
     }
 
-    public function getRemainingAttribute()
+    public function invoice()
+    {
+        return $this->hasOne(Invoice::class);
+    }
+
+    // ========== ACCESSORS ==========
+
+    public function getStatusBadgeAttribute()
+    {
+        $badges = [
+            'pending' => 'warning',
+            'partial' => 'info',
+            'paid' => 'success',
+        ];
+        return $badges[$this->status] ?? 'secondary';
+    }
+
+    public function getStatusLabelAttribute()
+    {
+        $labels = [
+            'pending' => 'Pending',
+            'partial' => 'Partial',
+            'paid' => 'Paid',
+        ];
+        return $labels[$this->status] ?? ucfirst($this->status);
+    }
+
+    public function getIsOverdueAttribute()
+    {
+        return $this->status != 'paid' && $this->due_date < now();
+    }
+
+    public function getRemainingAmountAttribute()
     {
         return $this->amount - $this->paid_amount;
     }
 
-    public function markAsPaid($paymentDate = null, $receipt = null)
+    // ========== SCOPES ==========
+
+    public function scopePending($query)
     {
-        $this->status = 'paid';
-        $this->paid_amount = $this->amount;
-        $this->payment_date = $paymentDate ?? now();
-        if ($receipt) $this->receipt_number = $receipt;
-        $this->save();
+        return $query->where('status', 'pending');
     }
 
-    public function recordPartialPayment($amount, $paymentDate = null, $receipt = null)
+    public function scopePaid($query)
     {
-        $this->paid_amount += $amount;
-        if ($this->paid_amount >= $this->amount) {
-            $this->status = 'paid';
-            $this->paid_amount = $this->amount;
-        } else {
-            $this->status = 'partial';
-        }
-        $this->payment_date = $paymentDate ?? now();
-        if ($receipt) $this->receipt_number = $receipt;
-        $this->save();
+        return $query->where('status', 'paid');
     }
-    public function invoice()
-{
-    return $this->hasOne(Invoice::class);
-}
+
+    public function scopeOverdue($query)
+    {
+        return $query->where('status', '!=', 'paid')->where('due_date', '<', now());
+    }
 }
