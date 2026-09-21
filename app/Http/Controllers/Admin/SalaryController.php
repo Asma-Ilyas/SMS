@@ -8,6 +8,7 @@ use App\Models\Salary;
 use App\Models\SalaryTemplate;
 use App\Models\AttendanceSummary;
 use App\Services\SalaryCalculator;
+use App\Support\PortalAlert;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 
@@ -53,18 +54,38 @@ class SalaryController extends Controller
         $month = $request->month ?? now()->format('Y-m');
         $year = (int) substr($month, 0, 4);
         $monthNum = (int) substr($month, 5, 2);
-        
+
+        // Remember who already had a salary row, so re-running payroll doesn't re-notify them
+        $alreadyHad = Salary::where('month', $month)->pluck('staff_id')->all();
+
         try {
             $results = SalaryCalculator::processPayroll($year, $monthNum, $request->payment_method ?? 'bank');
-            
+
             $message = "Payroll processed for {$results['success']} employees in {$month}.";
             if ($results['failed'] > 0) {
                 $message .= " Failed: {$results['failed']}. Errors: " . implode('; ', $results['errors']);
             }
-            
+
+            // Tell the staff whose salary slip was just created
+            $newStaffIds = Salary::where('month', $month)
+                ->whereNotIn('staff_id', $alreadyHad)
+                ->pluck('staff_id')
+                ->all();
+
+            if (!empty($newStaffIds)) {
+                PortalAlert::toStaff(
+                    $newStaffIds,
+                    'Salary slip ready',
+                    'Your salary for ' . $this->monthLabel($month) . ' has been processed.',
+                    PortalAlert::link('teacher.salary.index', '/notifications'),
+                    'salary',
+                    'info'
+                );
+            }
+
             return redirect()->route('admin.salaries.index', ['month' => $month])
                             ->with('success', $message);
-                            
+
         } catch (\Exception $e) {
             return redirect()->back()->with('error', 'Failed to process payroll: ' . $e->getMessage());
         }
@@ -125,19 +146,49 @@ class SalaryController extends Controller
             'remarks' => 'nullable|string|max:500',
         ]);
 
-        $salary = Salary::findOrFail($id);
+        $salary = Salary::with('staff')->findOrFail($id);
+        $wasPaid = $salary->payment_status === 'paid';
+
         $salary->update([
             'payment_status' => 'paid',
             'payment_date' => $request->payment_date,
             'payment_method' => $request->payment_method,
             'transaction_ref' => $request->transaction_ref,
             'remarks' => $request->remarks,
-            'approved_by' => auth()->id(),
+            // approved_by references staff.id, so find the staff record of the logged-in admin
+            'approved_by' => Staff::where('email', auth()->user()?->email)->value('id'),
             'approved_at' => now(),
         ]);
 
+        // Tell the staff member their salary was paid (only the first time)
+        if (!$wasPaid) {
+            PortalAlert::toStaff(
+                $salary->staff_id,
+                'Salary paid',
+                'Your salary for ' . $this->monthLabel($salary->month) . ' has been paid'
+                    . ($request->payment_method ? ' by ' . $request->payment_method : '') . '.',
+                PortalAlert::link('teacher.salary.index', '/notifications'),
+                'salary',
+                'success'
+            );
+        }
+
+        $name = trim(($salary->staff->first_name ?? '') . ' ' . ($salary->staff->last_name ?? ''));
+
         return redirect()->route('admin.salaries.index')
-                        ->with('success', "Salary marked as paid for {$salary->staff->full_name}");
+                        ->with('success', "Salary marked as paid for {$name}");
+    }
+
+    /**
+     * "2026-09" -> "September 2026"
+     */
+    private function monthLabel(string $month): string
+    {
+        try {
+            return Carbon::createFromFormat('Y-m', $month)->format('F Y');
+        } catch (\Throwable $e) {
+            return $month;
+        }
     }
 
     /**

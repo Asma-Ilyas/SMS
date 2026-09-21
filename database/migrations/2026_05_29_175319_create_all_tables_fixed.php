@@ -82,6 +82,34 @@ return new class extends Migration
         });
 
         // =============================================
+        // 1a. AUTHENTICATION TABLES
+        // =============================================
+        Schema::create('users', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('email')->unique();
+            $table->timestamp('email_verified_at')->nullable();
+            $table->string('password');
+            $table->rememberToken();
+            $table->timestamps();
+        });
+
+        Schema::create('password_reset_tokens', function (Blueprint $table) {
+            $table->string('email')->primary();
+            $table->string('token');
+            $table->timestamp('created_at')->nullable();
+        });
+
+        Schema::create('sessions', function (Blueprint $table) {
+            $table->string('id')->primary();
+            $table->foreignId('user_id')->nullable()->index();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->longText('payload');
+            $table->integer('last_activity')->index();
+        });
+
+        // =============================================
         // 2. Academic core
         // =============================================
         Schema::create('academic_sessions', function (Blueprint $table) {
@@ -390,6 +418,7 @@ return new class extends Migration
         // =============================================
         Schema::create('students', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();          
             $table->string('first_name');
             $table->string('middle_name')->nullable();
             $table->string('last_name');
@@ -1168,6 +1197,11 @@ return new class extends Migration
         Schema::dropIfExists('section_types');
         Schema::dropIfExists('pages');
         Schema::dropIfExists('schools');
+        
+        // Auth tables (added above academic core)
+        Schema::dropIfExists('sessions');
+        Schema::dropIfExists('password_reset_tokens');
+        Schema::dropIfExists('users');
         
         DB::statement('SET FOREIGN_KEY_CHECKS=1');
     }

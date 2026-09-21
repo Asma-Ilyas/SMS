@@ -177,4 +177,8 @@ class Staff extends Model
               ->orWhere('email', 'LIKE', "%{$search}%");
         });
     }
+    public function getNameAttribute(): string
+{
+    return trim($this->first_name . ' ' . $this->last_name);
+}
 }

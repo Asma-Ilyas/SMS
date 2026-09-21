@@ -13,6 +13,7 @@ use App\Models\StudentAttendance;
 use App\Models\StudentAttendanceSummary;
 use App\Models\Subject;
 use App\Models\Room;
+use App\Support\PortalAlert;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -65,48 +66,57 @@ class StudentAttendanceController extends Controller
     /**
      * Show mark attendance form
      */
-    public function create(Request $request)
-    {
-        $classSectionId = $request->class_section_id;
-        $date = $request->date ?? Carbon::today()->toDateString();
-        
-        $classSection = ClassSection::with(['class.grade', 'class.stream'])->findOrFail($classSectionId);
-        
-        $students = Student::where('class_section_id', $classSectionId)
-            ->orderBy('first_name')
-            ->get();
-        
-        $attendances = StudentAttendance::where('class_section_id', $classSectionId)
-            ->where('date', $date)
-            ->get()
-            ->keyBy('student_id');
-        
-        $teacher = Staff::first();
-        $teacherName = $teacher ? $teacher->full_name : 'Admin';
-        
-        $subjects = Subject::all();
-        
-        // Get reasons for dropdowns
-        $halfDayReasons = AttendanceReason::halfDayReasons()->active()->ordered()->get();
-        $lateReasons = AttendanceReason::lateReasons()->active()->ordered()->get();
-        
-        // Get status options
-        $statusOptions = StudentAttendance::getStatusOptions();
-        $halfDayTypes = StudentAttendance::getHalfDayTypeOptions();
-        
-        return view('admin.studentattendance.mark', compact(
-            'classSection', 
-            'date', 
-            'students', 
-            'attendances', 
-            'teacherName', 
-            'subjects',
-            'halfDayReasons',
-            'lateReasons',
-            'statusOptions',
-            'halfDayTypes'
-        ));
+   /**
+ * Show mark attendance form
+ */
+public function create(Request $request)
+{
+    $classSectionId = $request->class_section_id;
+    $date = $request->date ?? Carbon::today()->toDateString();
+    
+    // If no class section is selected, show selection form
+    if (!$classSectionId) {
+        $classSections = ClassSection::with(['class.grade', 'class.stream'])->get();
+        return view('admin.studentattendance.select-class', compact('classSections'));
     }
+    
+    $classSection = ClassSection::with(['class.grade', 'class.stream'])->findOrFail($classSectionId);
+    
+    $students = Student::where('class_section_id', $classSectionId)
+        ->orderBy('first_name')
+        ->get();
+    
+    $attendances = StudentAttendance::where('class_section_id', $classSectionId)
+        ->where('date', $date)
+        ->get()
+        ->keyBy('student_id');
+    
+    $teacher = Staff::first();
+    $teacherName = $teacher ? $teacher->full_name : 'Admin';
+    
+    $subjects = Subject::all();
+    
+    // Get reasons for dropdowns
+    $halfDayReasons = AttendanceReason::halfDayReasons()->active()->ordered()->get();
+    $lateReasons = AttendanceReason::lateReasons()->active()->ordered()->get();
+    
+    // Get status options
+    $statusOptions = StudentAttendance::getStatusOptions();
+    $halfDayTypes = StudentAttendance::getHalfDayTypeOptions();
+    
+    return view('admin.studentattendance.mark', compact(
+        'classSection', 
+        'date', 
+        'students', 
+        'attendances', 
+        'teacherName', 
+        'subjects',
+        'halfDayReasons',
+        'lateReasons',
+        'statusOptions',
+        'halfDayTypes'
+    ));
+}
 
     /**
      * Store or update attendance
@@ -361,7 +371,7 @@ class StudentAttendanceController extends Controller
             $data['is_approved'] = $request->is_approved;
             if ($request->is_approved) {
                 $data['approved_at'] = now();
-                $data['approved_by'] = auth()->id() ?? Staff::first()->id ?? null;
+                $data['approved_by'] = Staff::where('email', auth()->user()?->email)->value('id');
             }
         }
 
@@ -752,18 +762,30 @@ class StudentAttendanceController extends Controller
     public function approveLeave($attendanceId)
     {
         $attendance = StudentAttendance::findOrFail($attendanceId);
-        
+
         if (!in_array($attendance->status, ['leave', 'half_day'])) {
             return back()->with('error', 'This record is not a leave or half-day request.');
         }
-        
+
         $attendance->update([
             'is_approved' => true,
             'approved_at' => now(),
-            'approved_by' => auth()->id() ?? Staff::first()->id ?? null,
+            // approved_by is a staff id, so look the staff member up from the logged-in user's email
+            'approved_by' => Staff::where('email', auth()->user()?->email)->value('id'),
         ]);
-        
-        return back()->with('success', ucfirst($attendance->status) . ' request approved successfully.');
+
+        $type = str_replace('_', ' ', $attendance->status);
+
+        PortalAlert::toStudent(
+            $attendance->student_id,
+            ucfirst($type) . ' approved',
+            'Your ' . $type . ' request for ' . Carbon::parse($attendance->date)->format('d M Y') . ' was approved.',
+            PortalAlert::link('student.attendance.index', '/student/attendance'),
+            'attendance',
+            'success'
+        );
+
+        return back()->with('success', ucfirst($type) . ' request approved successfully.');
     }
 
     /**
@@ -772,24 +794,37 @@ class StudentAttendanceController extends Controller
     public function rejectLeave($attendanceId)
     {
         $attendance = StudentAttendance::findOrFail($attendanceId);
-        
+
         if (!in_array($attendance->status, ['leave', 'half_day'])) {
             return back()->with('error', 'This record is not a leave or half-day request.');
         }
-        
+
+        // Remember these before the status is changed to "absent"
+        $type = str_replace('_', ' ', $attendance->status);
+        $date = Carbon::parse($attendance->date)->format('d M Y');
+
         $attendance->update([
-            'status' => 'absent',
-            'is_approved' => false,
-            'remarks' => 'Rejected by ' . (auth()->user()->name ?? 'Admin'),
-            'half_day_type' => null,
-            'half_day_reason' => null,
-            'half_day_in_time' => null,
+            'status'            => 'absent',
+            'is_approved'       => false,
+            'remarks'           => 'Rejected by ' . (auth()->user()->name ?? 'Admin'),
+            'half_day_type'     => null,
+            'half_day_reason'   => null,
+            'half_day_in_time'  => null,
             'half_day_out_time' => null,
             'late_arrival_time' => null,
-            'late_minutes' => 0,
-            'late_reason' => null,
+            'late_minutes'      => 0,
+            'late_reason'       => null,
         ]);
-        
+
+        PortalAlert::toStudent(
+            $attendance->student_id,
+            ucfirst($type) . ' rejected',
+            'Your ' . $type . ' request for ' . $date . ' was rejected and marked as absent.',
+            PortalAlert::link('student.attendance.index', '/student/attendance'),
+            'attendance',
+            'warning'
+        );
+
         return back()->with('success', 'Request rejected successfully.');
     }
 

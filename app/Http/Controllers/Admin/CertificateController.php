@@ -3,10 +3,11 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\CertificateType;
 use App\Models\CertificateDistribution;
+use App\Models\CertificateType;
+use App\Models\ClassSection;
 use App\Models\Student;
-use App\Models\ClassSection;        // ✅ Changed from Classes
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -18,6 +19,7 @@ class CertificateController extends Controller
     public function index()
     {
         $certificateTypes = CertificateType::withCount('distributions')->get();
+
         return view('admin.certificates.index', compact('certificateTypes'));
     }
 
@@ -34,18 +36,18 @@ class CertificateController extends Controller
      */
     public function storeType(Request $request)
     {
-        $request->validate([
-            'title'         => 'required|string|max:255|unique:certificate_types',
+        $data = $request->validate([
+            'title'         => 'required|string|max:255|unique:certificate_types,title',
             'description'   => 'nullable|string',
             'template_file' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:2048',
-            'is_active'     => 'boolean',
         ]);
 
-        $data = $request->except('template_file');
         if ($request->hasFile('template_file')) {
             $data['template_file'] = $request->file('template_file')->store('certificates/templates', 'public');
         }
-        $data['is_active'] = $request->has('is_active');
+
+        // Checkbox: missing = false, "on"/"1" = true
+        $data['is_active'] = $request->boolean('is_active');
 
         CertificateType::create($data);
 
@@ -62,31 +64,30 @@ class CertificateController extends Controller
     }
 
     /**
-     * Update certificate type – title, description, template, active status.
+     * Update certificate type: title, description, template, active status.
      */
     public function updateType(Request $request, CertificateType $certificateType)
     {
-        $request->validate([
+        $data = $request->validate([
             'title'         => 'required|string|max:255|unique:certificate_types,title,' . $certificateType->id,
             'description'   => 'nullable|string',
             'template_file' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:2048',
-            'is_active'     => 'boolean',
         ]);
 
-        $data = $request->except('template_file');
         if ($request->hasFile('template_file')) {
             if ($certificateType->template_file) {
                 Storage::disk('public')->delete($certificateType->template_file);
             }
             $data['template_file'] = $request->file('template_file')->store('certificates/templates', 'public');
-        } elseif ($request->remove_template == '1') {
+        } elseif ($request->input('remove_template') == '1') {
             if ($certificateType->template_file) {
                 Storage::disk('public')->delete($certificateType->template_file);
             }
             $data['template_file'] = null;
         }
 
-        $data['is_active'] = $request->has('is_active');
+        $data['is_active'] = $request->boolean('is_active');
+
         $certificateType->update($data);
 
         return redirect()->route('admin.certificates.index')
@@ -94,13 +95,14 @@ class CertificateController extends Controller
     }
 
     /**
-     * Delete a certificate type and its associated template file.
+     * Delete a certificate type and its template file.
      */
     public function destroyType(CertificateType $certificateType)
     {
         if ($certificateType->template_file) {
             Storage::disk('public')->delete($certificateType->template_file);
         }
+
         $certificateType->delete();
 
         return redirect()->route('admin.certificates.index')
@@ -109,23 +111,26 @@ class CertificateController extends Controller
 
     /**
      * Show form to distribute a certificate to a student.
-     * ✅ Now uses ClassSection instead of Classes.
      */
     public function distributeForm(CertificateType $certificateType)
     {
-        $classSections = ClassSection::with('class.grade')->get();
+        $classSections = ClassSection::with('class.grade')
+            ->orderBy('class_id')
+            ->orderBy('section_name')
+            ->get();
+
         return view('admin.certificates.distribute', compact('certificateType', 'classSections'));
     }
 
     /**
-     * Process certificate distribution (issue to student).
+     * Issue the certificate to a student and notify them.
      */
     public function distribute(Request $request, CertificateType $certificateType)
     {
         $request->validate([
             'student_id'       => 'required|exists:students,id',
             'issue_date'       => 'required|date',
-            'remarks'          => 'nullable|string',
+            'remarks'          => 'nullable|string|max:1000',
             'certificate_file' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:2048',
         ]);
 
@@ -134,15 +139,14 @@ class CertificateController extends Controller
             'student_id'          => $request->student_id,
             'issue_date'          => $request->issue_date,
             'remarks'             => $request->remarks,
+            'certificate_file'    => $request->hasFile('certificate_file')
+                ? $request->file('certificate_file')->store('certificates/issued', 'public')
+                : null,
         ];
 
-        if ($request->hasFile('certificate_file')) {
-            $data['certificate_file'] = $request->file('certificate_file')->store('certificates/issued', 'public');
-        } else {
-            $data['certificate_file'] = null;
-        }
+        $distribution = CertificateDistribution::create($data);
 
-        CertificateDistribution::create($data);
+        $this->notifyStudent($distribution, $certificateType);
 
         return redirect()->route('admin.certificates.index')
             ->with('success', 'Certificate distributed successfully.');
@@ -156,32 +160,35 @@ class CertificateController extends Controller
         $distributions = CertificateDistribution::with(['certificateType', 'student'])
             ->latest()
             ->paginate(20);
+
         return view('admin.certificates.history', compact('distributions'));
     }
 
     /**
-     * Download the issued certificate file (or fallback to template if available).
+     * Download the issued certificate file (falls back to the template).
      */
     public function download(CertificateDistribution $distribution)
     {
-        if ($distribution->certificate_file && Storage::disk('public')->exists($distribution->certificate_file)) {
-            return response()->download(storage_path('app/public/' . $distribution->certificate_file));
+        $disk = Storage::disk('public');
+
+        if ($distribution->certificate_file && $disk->exists($distribution->certificate_file)) {
+            return response()->download($disk->path($distribution->certificate_file));
         }
 
-        $templateFile = $distribution->certificateType->template_file;
-        if ($templateFile && Storage::disk('public')->exists($templateFile)) {
-            return response()->download(storage_path('app/public/' . $templateFile));
+        $template = $distribution->certificateType?->template_file;
+        if ($template && $disk->exists($template)) {
+            return response()->download($disk->path($template));
         }
 
         return back()->with('error', 'No certificate file available for download.');
     }
 
     // ------------------------------------------------------------------
-    // ✅ Updated AJAX endpoints using class_section_id
+    // AJAX endpoints
     // ------------------------------------------------------------------
 
     /**
-     * Get students by class_section_id (replaces old getSections + getStudents)
+     * Students of one class section, as JSON.
      */
     public function getStudentsBySection($classSectionId)
     {
@@ -190,32 +197,72 @@ class CertificateController extends Controller
             ->orderBy('last_name')
             ->get(['id', 'first_name', 'middle_name', 'last_name', 'admission_number']);
 
-        $data = $students->map(fn($student) => [
-            'id' => $student->id,
-            'name' => $student->full_name,
-            'admission_number' => $student->admission_number,
-        ]);
-
-        return response()->json($data);
+        return response()->json($students->map(fn ($s) => [
+            'id'               => $s->id,
+            'name'             => $this->studentName($s),
+            'admission_number' => $s->admission_number,
+        ])->values());
     }
 
     /**
-     * Get full student info (now includes class section details)
+     * Basic student details plus class and section, as JSON.
      */
     public function getStudentInfo($studentId)
     {
-        $student = Student::with('classSection.class.grade', 'classSection.class.stream')
-            ->findOrFail($studentId);
-
-        $classSection = $student->classSection;
-        $className = $classSection?->class?->full_name ?? 'N/A';
-        $sectionName = $classSection?->section_name ?? 'N/A';
+        $student = Student::findOrFail($studentId);
+        $section = ClassSection::with('class.grade')->find($student->class_section_id);
 
         return response()->json([
-            'name' => $student->full_name,
+            'name'             => $this->studentName($student),
             'admission_number' => $student->admission_number,
-            'class' => $className,
-            'section' => $sectionName,
+            'class'            => $section?->class?->grade?->name ?? 'N/A',
+            'section'          => $section?->section_name ?? 'N/A',
         ]);
+    }
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+
+    private function studentName($student): string
+    {
+        return trim(implode(' ', array_filter([
+            $student->first_name,
+            $student->middle_name,
+            $student->last_name,
+        ])));
+    }
+
+    /**
+     * Tell the student their certificate was issued.
+     * Never blocks the issue if the notification fails.
+     */
+    private function notifyStudent(CertificateDistribution $distribution, CertificateType $type): void
+    {
+        try {
+            if (! class_exists(\App\Notifications\AdminAlert::class)) {
+                return;
+            }
+
+            $student = Student::find($distribution->student_id);
+            if (! $student) {
+                return;
+            }
+
+            // Prefer a direct link if users.id is stored on the student, otherwise match by email.
+            $user = $student->user_id
+                ? User::find($student->user_id)
+                : ($student->email ? User::where('email', $student->email)->first() : null);
+
+            $user?->notify(new \App\Notifications\AdminAlert(
+                'Certificate issued',
+                $type->title . ' has been issued to you.',
+                route('student.certificates.index'),
+                'certificate',
+                'success'
+            ));
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 }

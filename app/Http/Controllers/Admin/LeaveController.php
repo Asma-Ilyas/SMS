@@ -30,7 +30,7 @@ class LeaveController extends Controller
             'reason'     => 'required|string',
         ]);
 
-        $validated['employee_id'] = $staff->id;
+        $validated['staff_id'] = $staff->id;
         $validated['status'] = 'pending';
 
         Leave::create($validated);
@@ -57,7 +57,7 @@ class LeaveController extends Controller
             return redirect()->route('admin.dashboard')->with('error', 'No staff record found for your account.');
         }
 
-        $leaves = Leave::where('employee_id', $staff->id)->orderBy('created_at', 'desc')->get();
+        $leaves = Leave::where('staff_id', $staff->id)->orderBy('created_at', 'desc')->get();
         return view('admin.leaves.my-leaves', compact('leaves'));
     }
 }

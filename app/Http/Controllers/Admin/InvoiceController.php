@@ -7,33 +7,49 @@ use App\Models\Invoice;
 use App\Models\Student;
 use App\Models\Bank;
 use App\Models\StudentFeeInstallment;
-use App\Models\ClassSection;           // ✅ replaced Classes with ClassSection
+use App\Models\ClassSection;
+use App\Support\PortalAlert;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 class InvoiceController extends Controller
 {
-    public function index()
+    /**
+     * List invoices. ?filter=awaiting shows only invoices that have a payment
+     * proof uploaded and are not yet approved. ?status=paid|pending|overdue works too.
+     */
+    public function index(Request $request)
     {
-        $invoices = Invoice::with(['student', 'installment'])->latest()->paginate(20);
-        return view('admin.fees.invoices.index', compact('invoices'));
+        $query = Invoice::with(['student', 'installment'])->latest();
+
+        if ($request->get('filter') === 'awaiting') {
+            $query->whereNotNull('payment_proof_file')->whereIn('status', ['pending', 'overdue']);
+        } elseif ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        $invoices = $query->paginate(20)->withQueryString();
+
+        $awaitingCount = Invoice::whereNotNull('payment_proof_file')
+            ->whereIn('status', ['pending', 'overdue'])
+            ->count();
+
+        return view('admin.fees.invoices.index', compact('invoices', 'awaitingCount'));
     }
 
     /**
-     * Show create form – class sections → students → installments → BANKS only
+     * Show create form: class sections -> students -> installments -> banks
      */
     public function create()
     {
-        // ✅ Fetch class sections with related class (for display)
         $classSections = ClassSection::with('class.grade')->orderBy('class_id')->get();
-        // Only banks (type = 'bank'), active – but we don't have type field in banks, keep as is
         $banks = Bank::where('is_active', true)->get();
         return view('admin.fees.invoices.create', compact('classSections', 'banks'));
     }
 
     /**
-     * ✅ AJAX: Get students by class_section_id (replaces old getStudentsByClass)
+     * AJAX: students of one class section
      */
     public function getStudentsByClassSection($classSectionId)
     {
@@ -44,7 +60,7 @@ class InvoiceController extends Controller
         $formatted = $students->map(function ($student) {
             return [
                 'id'          => $student->id,
-                'name'        => $student->full_name ?? $student->first_name . ' ' . $student->last_name,
+                'name'        => trim($student->first_name . ' ' . $student->last_name),
                 'roll_number' => $student->roll_number,
             ];
         });
@@ -53,7 +69,7 @@ class InvoiceController extends Controller
     }
 
     /**
-     * AJAX: Get installments (pending/partial) for a student (no change needed)
+     * AJAX: pending/partial installments for a student
      */
     public function getInstallmentsByStudent($studentId)
     {
@@ -75,39 +91,50 @@ class InvoiceController extends Controller
     }
 
     /**
-     * Store invoice – uses bank ID (payment_method_id column stores bank id)
+     * Store invoice (uses bank ID) and tell the student a new invoice exists.
      */
     public function store(Request $request)
     {
         $request->validate([
-            'student_id'                => 'required|exists:students,id',
-            'student_fee_installment_id'=> 'required|exists:student_fee_installments,id',
-            'bank_id'                   => 'required|exists:banks,id',
-            'amount'                    => 'required|numeric|min:0',
-            'due_date'                  => 'required|date',
-            'late_fee'                  => 'nullable|numeric|min:0',
-            'discount'                  => 'nullable|numeric|min:0',
-            'other_charge_desc'         => 'nullable|string|max:255',
-            'other_charge_amount'       => 'nullable|numeric|min:0',
+            'student_id'                 => 'required|exists:students,id',
+            'student_fee_installment_id' => 'required|exists:student_fee_installments,id',
+            'bank_id'                    => 'required|exists:banks,id',
+            'amount'                     => 'required|numeric|min:0',
+            'due_date'                   => 'required|date',
+            'late_fee'                   => 'nullable|numeric|min:0',
+            'discount'                   => 'nullable|numeric|min:0',
+            'other_charge_desc'          => 'nullable|string|max:255',
+            'other_charge_amount'        => 'nullable|numeric|min:0',
         ]);
 
         $metadata = [
-            'late_fee'          => $request->late_fee ?? 0,
-            'discount'          => $request->discount ?? 0,
-            'other_charge_desc' => $request->other_charge_desc,
+            'late_fee'            => $request->late_fee ?? 0,
+            'discount'            => $request->discount ?? 0,
+            'other_charge_desc'   => $request->other_charge_desc,
             'other_charge_amount' => $request->other_charge_amount ?? 0,
         ];
 
         $invoice = Invoice::create([
-            'invoice_number' => Invoice::generateInvoiceNumber(),
-            'student_id'     => $request->student_id,
+            'invoice_number'             => Invoice::generateInvoiceNumber(),
+            'student_id'                 => $request->student_id,
             'student_fee_installment_id' => $request->student_fee_installment_id,
-            'bank_id'        => $request->bank_id,
-            'amount'         => $request->amount,
-            'due_date'       => $request->due_date,
-            'status'         => 'pending',
-            'metadata'       => json_encode($metadata),
+            'bank_id'                    => $request->bank_id,
+            'amount'                     => $request->amount,
+            'due_date'                   => $request->due_date,
+            'status'                     => 'pending',
+            'metadata'                   => json_encode($metadata),
         ]);
+
+        // Notify the student before the PDF step, so a PDF failure never skips it.
+        PortalAlert::toStudent(
+            $invoice->student_id,
+            'New fee invoice',
+            'Invoice ' . $invoice->invoice_number . ' of Rs. ' . number_format((float) $invoice->amount, 2)
+                . ' is due on ' . \Carbon\Carbon::parse($invoice->due_date)->format('d M Y') . '.',
+            PortalAlert::link('student.fees.index', '/student/fees'),
+            'fee',
+            'info'
+        );
 
         try {
             $invoice->generateChallan(); // PDF voucher
@@ -134,10 +161,13 @@ class InvoiceController extends Controller
         return response()->download(Storage::disk('public')->path($invoice->challan_file));
     }
 
+    /**
+     * Payment proof uploaded: tell every admin.
+     */
     public function uploadPaymentProof(Request $request, Invoice $invoice)
     {
         $request->validate([
-            'payment_proof' => 'required|file|mimes:jpg,png,pdf|max:2048',
+            'payment_proof' => 'required|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'remarks'       => 'nullable|string',
         ]);
 
@@ -146,18 +176,75 @@ class InvoiceController extends Controller
         $invoice->payment_remarks = $request->remarks;
         $invoice->save();
 
-        $admin = \App\Models\User::where('is_admin', true)->first();
-        if ($admin) $admin->notify(new \App\Notifications\PaymentProofUploaded($invoice));
+        $studentName = trim(($invoice->student?->first_name ?? '') . ' ' . ($invoice->student?->last_name ?? '')) ?: 'A student';
+
+        PortalAlert::toAdmins(
+            'Payment proof uploaded',
+            $studentName . ' uploaded a payment proof for invoice ' . $invoice->invoice_number . '. It needs approval.',
+            route('admin.invoices.show', $invoice),
+            'fee',
+            'info'
+        );
 
         return redirect()->back()->with('success', 'Payment proof uploaded. Admin will approve.');
     }
 
+    /**
+     * Payment approved: tell the student.
+     */
     public function approvePayment(Invoice $invoice)
     {
         if ($invoice->status === 'paid') {
             return redirect()->back()->with('error', 'Already paid.');
         }
+
         $invoice->markAsPaid($invoice->payment_proof_file, $invoice->payment_remarks, auth()->id());
+
+        PortalAlert::toStudent(
+            $invoice->student_id,
+            'Payment approved',
+            'Your payment for invoice ' . $invoice->invoice_number . ' has been approved.',
+            PortalAlert::link('student.fees.index', '/student/fees'),
+            'fee',
+            'success'
+        );
+
         return redirect()->route('admin.invoices.index')->with('success', 'Payment approved.');
+    }
+
+    /**
+     * Payment proof rejected: clear it, keep the invoice payable, tell the student why.
+     * (invoices.status has no "rejected" value, so the invoice simply stays pending/overdue.)
+     */
+    public function rejectPayment(Request $request, Invoice $invoice)
+    {
+        $request->validate([
+            'reason' => 'required|string|max:500',
+        ]);
+
+        if ($invoice->status === 'paid') {
+            return redirect()->back()->with('error', 'This invoice is already paid.');
+        }
+
+        if ($invoice->payment_proof_file) {
+            Storage::disk('public')->delete($invoice->payment_proof_file);
+        }
+
+        $invoice->payment_proof_file = null;
+        $invoice->payment_remarks = null;
+        $invoice->save();
+
+        PortalAlert::toStudent(
+            $invoice->student_id,
+            'Payment proof rejected',
+            'Your payment proof for invoice ' . $invoice->invoice_number . ' was rejected: ' . $request->reason
+                . ' Please upload a correct proof.',
+            PortalAlert::link('student.fees.index', '/student/fees'),
+            'fee',
+            'warning'
+        );
+
+        return redirect()->route('admin.invoices.index', ['filter' => 'awaiting'])
+            ->with('success', 'Payment proof rejected and the student was notified.');
     }
 }

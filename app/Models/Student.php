@@ -534,4 +534,6 @@ class Student extends Model
         $result = $this->examResults()->where('exam_id', $examId)->first();
         return $result ? $result->grade : null;
     }
+    public function transports() { return $this->hasMany(StudentTransport::class); }
+public function hostelAllocations() { return $this->hasMany(StudentHostelAllocation::class); }
 }

@@ -10,13 +10,13 @@
         <!-- Background Decorations -->
         <div class="absolute -top-20 -right-20 w-64 h-64 bg-white/5 rounded-full animate-pulse"></div>
         <div class="absolute -bottom-20 -left-20 w-48 h-48 bg-white/5 rounded-full animate-pulse delay-1000"></div>
-        
+
         <div class="relative z-10 flex flex-col lg:flex-row items-start lg:items-center gap-6">
             <!-- Avatar -->
             <div class="relative">
                 @if($student->profile_photo)
-                    <img src="{{ asset('storage/' . $student->profile_photo) }}" 
-                         alt="{{ $student->full_name }}" 
+                    <img src="{{ asset('storage/' . $student->profile_photo) }}"
+                         alt="{{ $student->full_name }}"
                          class="w-20 h-20 md:w-24 md:h-24 rounded-full border-4 border-white/40 shadow-xl object-cover hover:scale-105 transition-transform duration-300">
                 @else
                     <div class="w-20 h-20 md:w-24 md:h-24 rounded-full border-4 border-white/40 bg-white/20 backdrop-blur-sm flex items-center justify-center text-3xl font-bold text-white shadow-xl">
@@ -46,6 +46,16 @@
                     <span class="inline-flex items-center gap-1 px-3 py-1 bg-white/20 backdrop-blur-sm text-white text-xs font-medium rounded-full border border-white/20">
                         {{ $student->status == 'Active' ? '✅ Active' : '❌ Inactive' }}
                     </span>
+                    @if($currentTransport)
+                        <span class="inline-flex items-center gap-1 px-3 py-1 bg-sky-500/30 backdrop-blur-sm text-white text-xs font-medium rounded-full border border-white/20">
+                            🚌 {{ $currentTransport->route->name ?? 'Transport' }}
+                        </span>
+                    @endif
+                    @if($currentHostelAllocation)
+                        <span class="inline-flex items-center gap-1 px-3 py-1 bg-amber-500/30 backdrop-blur-sm text-white text-xs font-medium rounded-full border border-white/20">
+                            🏠 {{ $currentHostelAllocation->hostel->name ?? 'Hostel' }}
+                        </span>
+                    @endif
                 </div>
             </div>
 
@@ -67,17 +77,17 @@
                         <div class="text-xs text-white/70">Exams</div>
                     </div>
                 </div>
-                
+
                 <div class="flex flex-wrap gap-2">
-                    <a href="{{ route('admin.students.edit', $student->id) }}" 
+                    <a href="{{ route('admin.students.edit', $student->id) }}"
                        class="inline-flex items-center gap-2 px-4 py-2 bg-white text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl text-sm font-medium">
                         ✏️ Edit
                     </a>
-                    <a href="{{ route('admin.students.index') }}" 
+                    <a href="{{ route('admin.students.index') }}"
                        class="inline-flex items-center gap-2 px-4 py-2 bg-white/20 backdrop-blur-sm text-white hover:bg-white/30 rounded-xl transition-all duration-300 text-sm font-medium">
                         ← Back
                     </a>
-                    <button onclick="window.print()" 
+                    <button onclick="window.print()"
                             class="inline-flex items-center gap-2 px-4 py-2 bg-white/20 backdrop-blur-sm text-white hover:bg-white/30 rounded-xl transition-all duration-300 text-sm font-medium">
                         🖨️ Print
                     </button>
@@ -91,35 +101,35 @@
         <div class="bg-white rounded-xl p-4 shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border border-gray-100">
             <div class="text-2xl mb-1 text-center">📊</div>
             <p class="text-xs text-gray-500 font-medium text-center">Attendance</p>
-            <p class="text-2xl font-bold text-center 
+            <p class="text-2xl font-bold text-center
                 {{ $stats['attendance_percentage'] >= 80 ? 'text-emerald-600' : ($stats['attendance_percentage'] >= 60 ? 'text-amber-500' : 'text-red-500') }}">
                 {{ number_format($stats['attendance_percentage'], 1) }}%
             </p>
             <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2">
-                <div class="h-1.5 rounded-full transition-all duration-1000 
-                    {{ $stats['attendance_percentage'] >= 80 ? 'bg-emerald-500' : ($stats['attendance_percentage'] >= 60 ? 'bg-amber-500' : 'bg-red-500') }}" 
+                <div class="h-1.5 rounded-full transition-all duration-1000
+                    {{ $stats['attendance_percentage'] >= 80 ? 'bg-emerald-500' : ($stats['attendance_percentage'] >= 60 ? 'bg-amber-500' : 'bg-red-500') }}"
                     style="width: {{ $stats['attendance_percentage'] }}%"></div>
             </div>
         </div>
-        
+
         <div class="bg-white rounded-xl p-4 shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border border-gray-100">
             <div class="text-2xl mb-1 text-center">📈</div>
             <p class="text-xs text-gray-500 font-medium text-center">Average Marks</p>
             <p class="text-2xl font-bold text-center text-indigo-600">{{ number_format($stats['avg_percentage'], 1) }}%</p>
         </div>
-        
+
         <div class="bg-white rounded-xl p-4 shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border border-gray-100">
             <div class="text-2xl mb-1 text-center">🏆</div>
             <p class="text-xs text-gray-500 font-medium text-center">Grade</p>
             <p class="text-2xl font-bold text-center text-purple-600">{{ $stats['grade'] }}</p>
         </div>
-        
+
         <div class="bg-white rounded-xl p-4 shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border border-gray-100">
             <div class="text-2xl mb-1 text-center">📝</div>
             <p class="text-xs text-gray-500 font-medium text-center">Total Exams</p>
             <p class="text-2xl font-bold text-center text-gray-800">{{ $stats['total_exams'] }}</p>
         </div>
-        
+
         <div class="bg-white rounded-xl p-4 shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border border-gray-100">
             <div class="text-2xl mb-1 text-center">💳</div>
             <p class="text-xs text-gray-500 font-medium text-center">Fee Status</p>
@@ -141,7 +151,7 @@
                 ✏️ Edit
             </a>
         </div>
-        
+
         <div class="p-6">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <!-- Left Column -->
@@ -272,6 +282,45 @@
         </div>
     </div>
 
+    <!-- ===== TRANSPORT & HOSTEL ===== -->
+    <div class="bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 mb-6 overflow-hidden border border-gray-100">
+        <div class="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+            <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <span class="text-xl">🚌</span> Transport & Hostel
+            </h3>
+            <a href="{{ route('admin.students.edit', $student->id) }}" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1 transition-all duration-300 hover:gap-2">
+                ✏️ Edit
+            </a>
+        </div>
+        <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="rounded-xl p-4 border {{ $currentTransport ? 'border-sky-200 bg-sky-50' : 'border-gray-200 bg-gray-50' }}">
+                <p class="text-xs text-gray-500 font-medium uppercase tracking-wider mb-2">🚌 Transport</p>
+                @if($currentTransport)
+                    <p class="text-sm font-semibold text-gray-800">{{ $currentTransport->route->name ?? 'N/A' }}</p>
+                    <p class="text-sm text-gray-600">Stop: {{ $currentTransport->routeStop->stop_name ?? 'N/A' }}</p>
+                    <p class="text-xs text-gray-400 mt-1">Since {{ optional($currentTransport->start_date)->format('d M Y') }}</p>
+                @else
+                    <p class="text-sm text-gray-400">Not assigned to a transport route.</p>
+                @endif
+            </div>
+            <div class="rounded-xl p-4 border {{ $currentHostelAllocation ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50' }}">
+                <p class="text-xs text-gray-500 font-medium uppercase tracking-wider mb-2">🏠 Hostel</p>
+                @if($currentHostelAllocation)
+                    <p class="text-sm font-semibold text-gray-800">{{ $currentHostelAllocation->hostel->name ?? 'N/A' }}</p>
+                    <p class="text-sm text-gray-600">
+                        Room: {{ $currentHostelAllocation->room->room_number ?? 'N/A' }}
+                        @if($currentHostelAllocation->bed_number)
+                            • Bed {{ $currentHostelAllocation->bed_number }}
+                        @endif
+                    </p>
+                    <p class="text-xs text-gray-400 mt-1">Since {{ optional($currentHostelAllocation->allocation_date)->format('d M Y') }}</p>
+                @else
+                    <p class="text-sm text-gray-400">Not allocated to a hostel room.</p>
+                @endif
+            </div>
+        </div>
+    </div>
+
     <!-- ===== WEEKLY TIMETABLE ===== -->
     <div class="bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 mb-6 overflow-hidden border border-gray-100">
         <div class="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
@@ -281,12 +330,12 @@
                     {{ $student->current_class }} • Section {{ $student->classSection->section_name ?? 'N/A' }}
                 </span>
             </h3>
-            <a href="{{ route('admin.timetable-reports.by-section', ['classSectionId' => $student->class_section_id]) }}" 
+            <a href="{{ route('admin.timetable-reports.by-section', ['classSectionId' => $student->class_section_id]) }}"
                class="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1 transition-all duration-300 hover:gap-2">
                 📋 View Full
             </a>
         </div>
-        
+
         <div class="p-6">
             @php
                 $days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
@@ -469,7 +518,7 @@
                                 <td class="px-4 py-3 font-medium text-gray-800">{{ $result->exam->name ?? 'N/A' }}</td>
                                 <td class="px-4 py-3 text-center text-gray-600">{{ number_format($result->total_marks, 1) }}/{{ number_format($result->total_max_marks, 1) }}</td>
                                 <td class="px-4 py-3 text-center">
-                                    <span class="font-semibold 
+                                    <span class="font-semibold
                                         {{ $result->percentage >= 80 ? 'text-emerald-600' : ($result->percentage >= 60 ? 'text-amber-500' : 'text-red-500') }}">
                                         {{ number_format($result->percentage, 1) }}%
                                     </span>
@@ -534,32 +583,32 @@
 
     <!-- ===== QUICK ACTIONS ===== -->
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 no-print">
-        <a href="{{ route('admin.students.edit', $student->id) }}" 
+        <a href="{{ route('admin.students.edit', $student->id) }}"
            class="bg-white hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-xl p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-lg group">
             <span class="text-3xl block mb-1 group-hover:scale-110 transition-transform duration-300">✏️</span>
             <span class="text-xs font-medium text-gray-600 group-hover:text-indigo-600">Edit Profile</span>
         </a>
-        <a href="{{ route('admin.students.attendance', $student->id) }}" 
+        <a href="{{ route('admin.students.attendance', $student->id) }}"
            class="bg-white hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-xl p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-lg group">
             <span class="text-3xl block mb-1 group-hover:scale-110 transition-transform duration-300">📅</span>
             <span class="text-xs font-medium text-gray-600 group-hover:text-indigo-600">Attendance</span>
         </a>
-        <a href="{{ route('admin.students.exam-results', $student->id) }}" 
+        <a href="{{ route('admin.students.exam-results', $student->id) }}"
            class="bg-white hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-xl p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-lg group">
             <span class="text-3xl block mb-1 group-hover:scale-110 transition-transform duration-300">📊</span>
             <span class="text-xs font-medium text-gray-600 group-hover:text-indigo-600">Exam Results</span>
         </a>
-        <a href="{{ route('admin.students.fee-details', $student->id) }}" 
+        <a href="{{ route('admin.students.fee-details', $student->id) }}"
            class="bg-white hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-xl p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-lg group">
             <span class="text-3xl block mb-1 group-hover:scale-110 transition-transform duration-300">💰</span>
             <span class="text-xs font-medium text-gray-600 group-hover:text-indigo-600">Fee Details</span>
         </a>
-        <a href="{{ route('admin.students.index') }}" 
+        <a href="{{ route('admin.students.index') }}"
            class="bg-white hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-xl p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-lg group">
             <span class="text-3xl block mb-1 group-hover:scale-110 transition-transform duration-300">←</span>
             <span class="text-xs font-medium text-gray-600 group-hover:text-indigo-600">Back to List</span>
         </a>
-        <button onclick="window.print()" 
+        <button onclick="window.print()"
                 class="bg-white hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-xl p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-lg group">
             <span class="text-3xl block mb-1 group-hover:scale-110 transition-transform duration-300">🖨️</span>
             <span class="text-xs font-medium text-gray-600 group-hover:text-indigo-600">Print Profile</span>
@@ -583,17 +632,17 @@
         .bg-white { background: white !important; }
         .bg-gray-50 { background: #f8fafc !important; }
     }
-    
+
     /* Animation Delays */
     .delay-1000 { animation-delay: 1000ms; }
-    
+
     /* Smooth Transitions */
     * {
         transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
         transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
         transition-duration: 150ms;
     }
-    
+
     /* Custom Scrollbar */
     ::-webkit-scrollbar {
         width: 6px;

@@ -14,8 +14,9 @@ use App\Models\ExamMark;
 use App\Models\ExamResult;
 use App\Models\GradeScale;
 use App\Models\ExamSubjectSchedule;
-use App\Models\ExamSubjectMark;
+use App\Models\ExamSubjectMark; // only used to clean up old rows in destroy()
 use App\Models\SubjectAssignment;
+use App\Support\PortalAlert;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -87,46 +88,52 @@ class ExamController extends Controller
             'subject_marks.*.passing_marks' => 'required|numeric|min:0',
         ]);
 
-        // Create exam
-        $exam = Exam::create([
-            'exam_type_id' => $request->exam_type_id,
-            'exam_group_id' => $request->exam_group_id,
-            'class_section_id' => $request->class_section_id,
-            'name' => $request->name,
-            'start_date' => $request->start_date,
-            'end_date' => $request->end_date,
-            'description' => $request->description,
-            'is_published' => $request->is_published ?? false,
-            'passing_percentage' => $request->passing_percentage ?? 40,
-        ]);
+        // Everything in one transaction: if any step fails, no half-created exam is left behind.
+        $exam = DB::transaction(function () use ($request) {
+            $exam = Exam::create([
+                'exam_type_id' => $request->exam_type_id,
+                'exam_group_id' => $request->exam_group_id,
+                'class_section_id' => $request->class_section_id,
+                'name' => $request->name,
+                'start_date' => $request->start_date,
+                'end_date' => $request->end_date,
+                'description' => $request->description,
+                'is_published' => $request->boolean('is_published'),
+                'passing_percentage' => $request->passing_percentage ?? 40,
+            ]);
 
-        // Save subject-wise marks configuration
-        foreach ($request->subjects as $subjectId) {
-            if (isset($request->subject_marks[$subjectId])) {
-                ExamSubjectMark::create([
-                    'exam_id' => $exam->id,
-                    'subject_id' => $subjectId,
-                    'max_marks' => $request->subject_marks[$subjectId]['max_marks'],
-                    'passing_marks' => $request->subject_marks[$subjectId]['passing_marks'],
-                ]);
-            }
-        }
+            // One marks row per student and subject. Each row stores that subject's
+            // max / passing marks, so no separate per-subject table is needed.
+            // (The old code also wrote to exam_subject_marks without a student_id,
+            // which is a required column, and that caused the 500 error.)
+            $students = Student::where('class_section_id', $request->class_section_id)->get();
 
-        // Create marks entries for all students
-        $students = Student::where('class_section_id', $request->class_section_id)->get();
-        foreach ($students as $student) {
-            foreach ($request->subjects as $subjectId) {
-                $marks = $request->subject_marks[$subjectId];
-                ExamMark::create([
-                    'exam_id' => $exam->id,
-                    'student_id' => $student->id,
-                    'subject_id' => $subjectId,
-                    'marks_obtained' => 0,
-                    'max_marks' => $marks['max_marks'],
-                    'passing_marks' => $marks['passing_marks'],
-                    'remarks' => 'Not attempted',
-                ]);
+            foreach ($students as $student) {
+                foreach ($request->subjects as $subjectId) {
+                    if (!isset($request->subject_marks[$subjectId])) {
+                        continue;
+                    }
+
+                    $marks = $request->subject_marks[$subjectId];
+
+                    ExamMark::create([
+                        'exam_id' => $exam->id,
+                        'student_id' => $student->id,
+                        'subject_id' => $subjectId,
+                        'marks_obtained' => 0,
+                        'max_marks' => $marks['max_marks'],
+                        'passing_marks' => $marks['passing_marks'],
+                        'remarks' => 'Not attempted',
+                    ]);
+                }
             }
+
+            return $exam;
+        });
+
+        // If the exam was created already published, tell the students right away
+        if ($exam->is_published) {
+            $this->notifyExamPublished($exam);
         }
 
         return redirect()->route('admin.exams.index')
@@ -276,17 +283,43 @@ public function marksEntryForm($examId)
 }
 
     /**
-     * Store marks
+     * Store marks.
+     * Uses the max / passing marks that were set for each student's subject when the
+     * exam was created (falls back to 100 / 40), instead of overwriting them.
      */
     public function storeMarks(Request $request, $examId)
     {
         $request->validate([
             'marks' => 'required|array',
-            'marks.*.*' => 'nullable|numeric|min:0|max:100',
+            'marks.*.*' => 'nullable|numeric|min:0',
         ]);
 
+        $existing = ExamMark::where('exam_id', $examId)->get()
+            ->keyBy(fn ($m) => $m->student_id . '-' . $m->subject_id);
+
+        // First pass: make sure no mark is above its subject's maximum
+        $problems = [];
         foreach ($request->marks as $studentId => $subjectMarks) {
             foreach ($subjectMarks as $subjectId => $marksObtained) {
+                if ($marksObtained === null || $marksObtained === '') continue;
+                $max = $existing[$studentId . '-' . $subjectId]->max_marks ?? 100;
+                if ($marksObtained > $max) {
+                    $problems[] = "Marks for student #{$studentId}, subject #{$subjectId} cannot be above {$max}.";
+                }
+            }
+        }
+        if ($problems) {
+            return back()->withInput()->withErrors($problems);
+        }
+
+        // Second pass: save
+        foreach ($request->marks as $studentId => $subjectMarks) {
+            foreach ($subjectMarks as $subjectId => $marksObtained) {
+                $row  = $existing[$studentId . '-' . $subjectId] ?? null;
+                $max  = $row->max_marks ?? 100;
+                $pass = $row->passing_marks ?? 40;
+                $obtained = ($marksObtained === null || $marksObtained === '') ? 0 : $marksObtained;
+
                 ExamMark::updateOrCreate(
                     [
                         'exam_id' => $examId,
@@ -294,10 +327,10 @@ public function marksEntryForm($examId)
                         'subject_id' => $subjectId,
                     ],
                     [
-                        'marks_obtained' => $marksObtained ?? 0,
-                        'max_marks' => 100,
-                        'passing_marks' => 40,
-                        'remarks' => $marksObtained >= 40 ? 'Pass' : 'Fail',
+                        'marks_obtained' => $obtained,
+                        'max_marks' => $max,
+                        'passing_marks' => $pass,
+                        'remarks' => $obtained >= $pass ? 'Pass' : 'Fail',
                     ]
                 );
             }
@@ -383,9 +416,47 @@ public function marksEntryForm($examId)
     public function publish($examId)
     {
         $exam = Exam::findOrFail($examId);
+        $wasPublished = (bool) $exam->is_published;
+
         $exam->update(['is_published' => true]);
 
+        // Only notify when the exam actually changes from unpublished to published
+        if (!$wasPublished) {
+            $this->notifyExamPublished($exam);
+        }
+
         return redirect()->back()->with('success', 'Exam published successfully.');
+    }
+
+    /**
+     * Tell every student in the exam's class section that it is published.
+     * If marks/results already exist, say the results are out; otherwise announce the exam.
+     */
+    private function notifyExamPublished(Exam $exam): void
+    {
+        $hasResults = ExamResult::where('exam_id', $exam->id)->exists();
+
+        if ($hasResults) {
+            $title   = 'Exam results published';
+            $message = 'Results for ' . $exam->name . ' are now available.';
+            $level   = 'success';
+        } else {
+            $start = $exam->start_date ? \Carbon\Carbon::parse($exam->start_date)->format('d M Y') : null;
+            $end   = $exam->end_date ? \Carbon\Carbon::parse($exam->end_date)->format('d M Y') : null;
+
+            $title   = 'Exam published';
+            $message = $exam->name . ' has been published' . ($start && $end ? " ({$start} to {$end})." : '.');
+            $level   = 'info';
+        }
+
+        PortalAlert::toSection(
+            $exam->class_section_id,
+            $title,
+            $message,
+            PortalAlert::link('student.exams.index', '/student/exams'),
+            'exam',
+            $level
+        );
     }
 
     /**
