@@ -10,16 +10,61 @@
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        /*
+         * Print rules: hide the sidebar, navbar, and anything marked .no-print,
+         * and let <main> take the full printed page.
+         * Any page that wants ONLY part of its own content to print (not all
+         * of <main>) should wrap that part in <div id="print-area">...</div>
+         * — if #print-area exists on the page, only it is shown; otherwise
+         * the whole of <main> prints.
+         */
+        @media print {
+            #app-sidebar,
+            #app-navbar,
+            .no-print {
+                display: none !important;
+            }
+
+            body, .flex, .flex-1 {
+                display: block !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+                background: #fff !important;
+            }
+
+            main {
+                padding: 0 !important;
+                margin: 0 !important;
+                width: 100% !important;
+            }
+
+            /* If a page defines #print-area, hide everything else inside <main>
+               and show only that area. */
+            body:has(#print-area) main > *:not(#print-area) {
+                display: none !important;
+            }
+            body:has(#print-area) #print-area {
+                display: block !important;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="flex">
         <!-- Sidebar -->
-        @include('layouts.sidebar')
+        <div id="app-sidebar">
+            @include('layouts.sidebar')
+        </div>
 
         <!-- Main Content -->
         <div class="flex-1 min-w-0 bg-gray-50">
             <!-- Navbar -->
-            @include('layouts.navbar')
+            <div id="app-navbar">
+                @include('layouts.navbar')
+            </div>
 
             <!-- Page Content -->
             <main class="p-6">

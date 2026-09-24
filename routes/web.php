@@ -198,10 +198,13 @@ Route::middleware(['auth', 'role:admin'])
     Route::resource('fee-installments', FeeInstallmentController::class);
     Route::get('fee-installments/{installment}/pay', [FeeInstallmentController::class, 'payForm'])->name('fee-installments.pay-form');
     Route::post('fee-installments/{installment}/pay', [FeeInstallmentController::class, 'pay'])->name('fee-installments.pay');
+    Route::post('fee-installments/{installment}/generate-invoice', [FeeInstallmentController::class, 'generateInvoiceForInstallment'])
+    ->name('fee-installments.generate-invoice');
     // REMOVED: generate-invoice (see below)
     Route::get('fee-installments/{installment}/download-challan', [FeeInstallmentController::class, 'downloadChallan'])->name('fee-installments.download-challan');
     Route::post('fee-installments/{installment}/upload-proof', [FeeInstallmentController::class, 'uploadProof'])->name('fee-installments.upload-proof');
     Route::post('fee-installments/{installment}/approve', [FeeInstallmentController::class, 'approvePayment'])->name('fee-installments.approve');
+    
 
     // CHANGED: only the methods that exist in InvoiceController
     Route::resource('invoices', InvoiceController::class)->only(['index', 'create', 'store', 'show']);
@@ -351,23 +354,27 @@ Route::middleware(['auth', 'role:admin'])
     // ============================================================
     // SALARY MANAGEMENT
     // ============================================================
-    Route::prefix('salaries')->name('salaries.')->group(function () {
-        Route::get('/', [SalaryController::class, 'index'])->name('index');
-        Route::post('/generate-payroll', [SalaryController::class, 'generatePayroll'])->name('generate-payroll');
-        Route::post('/calculate/{staffId}', [SalaryController::class, 'calculateIndividual'])->name('calculate');
-        Route::get('/preview/{staffId}', [SalaryController::class, 'preview'])->name('preview');
-        Route::get('/{id}', [SalaryController::class, 'show'])->name('show');
-        Route::get('/{id}/mark-paid', [SalaryController::class, 'markPaidForm'])->name('mark-paid');
-        Route::post('/{id}/mark-paid', [SalaryController::class, 'markPaidUpdate'])->name('mark-paid.update');
-        Route::get('/export', [SalaryController::class, 'export'])->name('export');
-        Route::get('/templates', [SalaryController::class, 'templates'])->name('templates');
-        Route::get('/templates/create', [SalaryController::class, 'createTemplate'])->name('templates.create');
-        Route::post('/templates', [SalaryController::class, 'storeTemplate'])->name('templates.store');
-        Route::get('/templates/{id}/edit', [SalaryController::class, 'editTemplate'])->name('templates.edit');
-        Route::put('/templates/{id}', [SalaryController::class, 'updateTemplate'])->name('templates.update');
-        Route::delete('/templates/{id}', [SalaryController::class, 'destroyTemplate'])->name('templates.destroy');
-        Route::post('/templates/apply', [SalaryController::class, 'applyTemplate'])->name('templates.apply');
-    });
+   Route::prefix('salaries')->name('salaries.')->group(function () {
+    // Static/literal paths FIRST
+    Route::get('/', [SalaryController::class, 'index'])->name('index');
+    Route::post('/generate-payroll', [SalaryController::class, 'generatePayroll'])->name('generate-payroll');
+    Route::post('/calculate/{staffId}', [SalaryController::class, 'calculateIndividual'])->name('calculate');
+    Route::get('/preview/{staffId}', [SalaryController::class, 'preview'])->name('preview');
+    Route::get('/export', [SalaryController::class, 'export'])->name('export');
+
+    Route::get('/templates', [SalaryController::class, 'templates'])->name('templates');
+    Route::get('/templates/create', [SalaryController::class, 'createTemplate'])->name('templates.create');
+    Route::post('/templates', [SalaryController::class, 'storeTemplate'])->name('templates.store');
+    Route::get('/templates/{id}/edit', [SalaryController::class, 'editTemplate'])->name('templates.edit');
+    Route::put('/templates/{id}', [SalaryController::class, 'updateTemplate'])->name('templates.update');
+    Route::delete('/templates/{id}', [SalaryController::class, 'destroyTemplate'])->name('templates.destroy');
+    Route::post('/templates/apply', [SalaryController::class, 'applyTemplate'])->name('templates.apply');
+
+    // Wildcard routes LAST
+    Route::get('/{id}', [SalaryController::class, 'show'])->name('show');
+    Route::get('/{id}/mark-paid', [SalaryController::class, 'markPaidForm'])->name('mark-paid');
+    Route::post('/{id}/mark-paid', [SalaryController::class, 'markPaidUpdate'])->name('mark-paid.update');
+});
 
     // ============================================================
     // LEAVES

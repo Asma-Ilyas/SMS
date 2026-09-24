@@ -12,6 +12,11 @@
         .slot-summary { margin-bottom: 20px; }
         .slot-summary span { display: inline-block; background: #eee; padding: 4px 8px; margin: 2px; border-radius: 4px; }
         .print-button { text-align: center; margin-bottom: 20px; }
+        .text-gray-400 { color: #9ca3af; }
+        .text-gray-500 { color: #6b7280; }
+        .text-center { text-align: center; }
+        .text-xs { font-size: 10px; }
+        .mt-8 { margin-top: 2rem; }
         @media print {
             .print-button { display: none; }
         }
@@ -49,17 +54,41 @@
 </div>
 @endif
 
+@php
+    // Group entries by "day_slot" so each cell can be looked up directly
+    // instead of looping/filtering the whole collection per cell.
+    $grouped = $entries->groupBy(fn($e) => $e->day_of_week . '_' . $e->time_slot_id);
+    $days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+@endphp
+
 <table>
     <thead>
         <tr><th>Time / Day</th><th>Monday</th><th>Tuesday</th><th>Wednesday</th><th>Thursday</th><th>Friday</th></tr>
     </thead>
     <tbody>
-        @foreach($slots as $slot)
+        @forelse($slots as $slot)
         <tr>
             <td><strong>{{ $slot->label }}</strong><br>{{ $slot->start_time }} – {{ $slot->end_time }}</td>
-            @for($i=1;$i<=5;$i++)<td class="text-gray-400">—</td>@endfor
+            @foreach($days as $day)
+                @php
+                    $entry = $grouped->get($day . '_' . $slot->id)?->first();
+                @endphp
+                <td>
+                    @if($entry)
+                        <strong>{{ $entry->subject->name ?? '—' }}</strong><br>
+                        {{ $entry->teacher->full_name ?? '' }}<br>
+                        {{ $entry->room->name ?? '' }}
+                    @else
+                        <span class="text-gray-400">—</span>
+                    @endif
+                </td>
+            @endforeach
         </tr>
-        @endforeach
+        @empty
+        <tr>
+            <td colspan="6" class="text-center text-gray-500">No time slots configured for this session.</td>
+        </tr>
+        @endforelse
     </tbody>
 </table>
 <p class="text-center text-gray-500 text-xs mt-8">Generated on {{ now()->format('d M Y H:i') }}</p>

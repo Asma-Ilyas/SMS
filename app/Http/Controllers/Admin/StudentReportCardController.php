@@ -29,7 +29,7 @@ class StudentReportCardController extends Controller
                            ->get();
 
         $academicSessions = AcademicSession::orderBy('start_date', 'desc')->get();
-        
+
         $exams = Exam::with(['examType', 'classSection'])
                     ->where('is_published', true)
                     ->orderBy('start_date', 'desc')
@@ -75,19 +75,19 @@ class StudentReportCardController extends Controller
 
         // Get exams for the student
         $exams = $this->getStudentExams($student->id, $sessionId, $examId);
-        
+
         // Get exam marks
         $examMarks = $this->getStudentExamMarks($student->id, $sessionId, $examId);
-        
+
         // Get subject-wise results
         $subjectResults = $this->getSubjectWiseResults($student->id, $sessionId, $examId);
-        
+
         // Get attendance data with date range
         $attendanceData = $this->getStudentAttendance($student->id, $dateFrom, $dateTo);
-        
+
         // Calculate overall performance
         $overallPerformance = $this->calculateOverallPerformance($examMarks);
-        
+
         // Get grade scale
         $gradeScale = $this->getGradeScale();
 
@@ -121,7 +121,7 @@ class StudentReportCardController extends Controller
                     ->distinct();
 
         if ($sessionId) {
-            $query->whereHas('classSection.class', function($q) use ($sessionId) {
+            $query->whereHas('classSection.class', function ($q) use ($sessionId) {
                 $q->where('academic_session_id', $sessionId);
             });
         }
@@ -144,10 +144,10 @@ class StudentReportCardController extends Controller
         if ($examId) {
             $query->where('exam_id', $examId);
         } else {
-            $query->whereHas('exam', function($q) use ($sessionId) {
+            $query->whereHas('exam', function ($q) use ($sessionId) {
                 $q->where('is_published', true);
                 if ($sessionId) {
-                    $q->whereHas('classSection.class', function($cq) use ($sessionId) {
+                    $q->whereHas('classSection.class', function ($cq) use ($sessionId) {
                         $cq->where('academic_session_id', $sessionId);
                     });
                 }
@@ -176,13 +176,13 @@ class StudentReportCardController extends Controller
             )
             ->join('subjects', 'exam_marks.subject_id', '=', 'subjects.id')
             ->where('exam_marks.student_id', $studentId)
-            ->whereHas('exam', function($q) use ($sessionId, $examId) {
+            ->whereHas('exam', function ($q) use ($sessionId, $examId) {
                 $q->where('is_published', true);
                 if ($examId) {
                     $q->where('id', $examId);
                 }
                 if ($sessionId) {
-                    $q->whereHas('classSection.class', function($cq) use ($sessionId) {
+                    $q->whereHas('classSection.class', function ($cq) use ($sessionId) {
                         $cq->where('academic_session_id', $sessionId);
                     });
                 }
@@ -192,11 +192,11 @@ class StudentReportCardController extends Controller
             ->get();
 
         foreach ($query as $subject) {
-            $subject->pass_percentage = $subject->exam_count > 0 
-                ? ($subject->passed_count / $subject->exam_count) * 100 
+            $subject->pass_percentage = $subject->exam_count > 0
+                ? ($subject->passed_count / $subject->exam_count) * 100
                 : 0;
-            $subject->average_percentage = $subject->average_max_marks > 0 
-                ? ($subject->average_marks / $subject->average_max_marks) * 100 
+            $subject->average_percentage = $subject->average_max_marks > 0
+                ? ($subject->average_marks / $subject->average_max_marks) * 100
                 : 0;
         }
 
@@ -204,128 +204,142 @@ class StudentReportCardController extends Controller
     }
 
     /**
-     * Get student attendance with date range filtering
+     * Get student attendance with date range filtering.
+     *
+     * Counts present / absent / leave / late / half_day / on_duty separately, so every
+     * key the report card view reads (present_days, absent_days, leave_days, late_days,
+     * half_days, on_duty_days) always exists, whether or not that status occurred.
      */
-    /**
- * Get student attendance with date range filtering - UPDATED
- */
-private function getStudentAttendance($studentId, $dateFrom = null, $dateTo = null)
-{
-    $query = StudentAttendance::where('student_id', $studentId);
+    private function getStudentAttendance($studentId, $dateFrom = null, $dateTo = null)
+    {
+        $query = StudentAttendance::where('student_id', $studentId);
 
-    // Apply date range filters
-    if ($dateFrom) {
-        $query->where('date', '>=', $dateFrom);
-    }
-    if ($dateTo) {
-        $query->where('date', '<=', $dateTo);
-    }
-
-    $attendance = $query->orderBy('date', 'asc')->get();
-
-    // If no records, return empty data
-    if ($attendance->isEmpty()) {
-        return [
-            'total_days' => 0,
-            'present_days' => 0,
-            'absent_days' => 0,
-            'leave_days' => 0,
-            'percentage' => 0,
-            'monthly' => [],
-            'daily' => [],
-            'records' => collect([]),
-            'has_data' => false,
-            'date_from' => $dateFrom,
-            'date_to' => $dateTo
-        ];
-    }
-
-    // Initialize counters
-    $totalDays = $attendance->count();
-    $presentDays = 0;
-    $absentDays = 0;
-    $leaveDays = 0;
-    $monthlyData = [];
-    $dailyData = [];
-
-    // Process each record
-    foreach ($attendance as $record) {
-        $status = strtolower(trim($record->status));
-        $date = Carbon::parse($record->date);
-        
-        // Count by status - Only present, absent, leave
-        if ($status === 'present') {
-            $presentDays++;
-        } elseif ($status === 'absent') {
-            $absentDays++;
-        } elseif ($status === 'leave') {
-            $leaveDays++;
+        if ($dateFrom) {
+            $query->where('date', '>=', $dateFrom);
+        }
+        if ($dateTo) {
+            $query->where('date', '<=', $dateTo);
         }
 
-        // Daily data
-        $dailyData[$date->format('Y-m-d')] = [
-            'date' => $date->format('d M Y'),
-            'status' => $status,
-            'status_display' => ucfirst($status),
-            'day' => $date->format('l'),
-            'leave_reason' => $record->leave_reason ?? null
+        $attendance = $query->orderBy('date', 'asc')->get();
+
+        $dateRangeDisplay = $this->getDateRangeDisplay($dateFrom, $dateTo);
+
+        // Always the same shape, whether or not there is any data, so the view
+        // never has to guess which keys exist.
+        $counts = [
+            'total_days'    => 0,
+            'present_days'  => 0,
+            'absent_days'   => 0,
+            'leave_days'    => 0,
+            'late_days'     => 0,
+            'half_days'     => 0,
+            'on_duty_days'  => 0,
         ];
 
-        // Monthly breakdown
-        $month = $date->format('F Y');
-        if (!isset($monthlyData[$month])) {
-            $monthlyData[$month] = [
-                'total' => 0,
-                'present' => 0,
-                'absent' => 0,
-                'leave' => 0,
-                'percentage' => 0
+        if ($attendance->isEmpty()) {
+            return $counts + [
+                'percentage'         => 0,
+                'monthly'            => [],
+                'daily'              => [],
+                'records'            => collect([]),
+                'has_data'           => false,
+                'date_from'          => $dateFrom,
+                'date_to'            => $dateTo,
+                'date_range_display' => $dateRangeDisplay,
             ];
         }
-        
-        $monthlyData[$month]['total']++;
-        if ($status === 'present') {
-            $monthlyData[$month]['present']++;
-        } elseif ($status === 'absent') {
-            $monthlyData[$month]['absent']++;
-        } elseif ($status === 'leave') {
-            $monthlyData[$month]['leave']++;
+
+        $counts['total_days'] = $attendance->count();
+        $monthlyData = [];
+        $dailyData = [];
+
+        // Maps each raw status to the counter key it should add to.
+        $statusKey = [
+            'present'  => 'present_days',
+            'absent'   => 'absent_days',
+            'leave'    => 'leave_days',
+            'late'     => 'late_days',
+            'half_day' => 'half_days',
+            'on_duty'  => 'on_duty_days',
+        ];
+
+        // Maps each raw status to the field name used inside the monthly
+        // breakdown array. The view reads $data['half'], not $data['half_day'],
+        // so this translation is required, not just a rename for tidiness.
+        $monthlyField = [
+            'present'  => 'present',
+            'absent'   => 'absent',
+            'leave'    => 'leave',
+            'late'     => 'late',
+            'half_day' => 'half',
+            'on_duty'  => 'on_duty',
+        ];
+
+        foreach ($attendance as $record) {
+            $status = strtolower(trim($record->status));
+            $date = Carbon::parse($record->date);
+
+            if (isset($statusKey[$status])) {
+                $counts[$statusKey[$status]]++;
+            }
+
+            $dailyData[$date->format('Y-m-d')] = [
+                'date'           => $date->format('d M Y'),
+                'status'         => $status,
+                'status_display' => ucfirst(str_replace('_', ' ', $status)),
+                'day'            => $date->format('l'),
+                'leave_reason'   => $record->leave_reason ?? null,
+                'half_day_type'  => $record->half_day_type ?? null,
+                'late_minutes'   => $record->late_minutes ?? null,
+            ];
+
+            $month = $date->format('F Y');
+            if (!isset($monthlyData[$month])) {
+                $monthlyData[$month] = [
+                    'total'      => 0,
+                    'present'    => 0,
+                    'absent'     => 0,
+                    'leave'      => 0,
+                    'late'       => 0,
+                    'half'       => 0,
+                    'on_duty'    => 0,
+                    'percentage' => 0,
+                ];
+            }
+
+            $monthlyData[$month]['total']++;
+            if (isset($monthlyField[$status])) {
+                $monthlyData[$month][$monthlyField[$status]]++;
+            }
         }
-    }
 
-    // Calculate monthly percentages
-    foreach ($monthlyData as $month => &$data) {
-        $attended = $data['present'] + $data['leave']; // Leave is considered as attended
-        $data['percentage'] = $data['total'] > 0 
-            ? round(($attended / $data['total']) * 100, 2)
+        // Present, leave and on-duty all count as "attended" for the percentage.
+        foreach ($monthlyData as $month => &$data) {
+            $attended = $data['present'] + $data['leave'] + $data['on_duty'];
+            $data['percentage'] = $data['total'] > 0
+                ? round(($attended / $data['total']) * 100, 2)
+                : 0;
+        }
+        unset($data);
+
+        $attendedDays = $counts['present_days'] + $counts['leave_days'] + $counts['on_duty_days'];
+        $percentage = $counts['total_days'] > 0
+            ? round(($attendedDays / $counts['total_days']) * 100, 2)
             : 0;
+
+        return $counts + [
+            'percentage'         => $percentage,
+            'monthly'            => $monthlyData,
+            'daily'              => $dailyData,
+            'records'            => $attendance,
+            'has_data'           => true,
+            'date_from'          => $dateFrom,
+            'date_to'            => $dateTo,
+            'date_range_display' => $dateRangeDisplay,
+        ];
     }
 
-    // Calculate overall percentage - Present + Leave are considered as attended
-    $attendedDays = $presentDays + $leaveDays;
-    $percentage = $totalDays > 0 
-        ? round(($attendedDays / $totalDays) * 100, 2)
-        : 0;
-
-    // Get date range display
-    $dateRangeDisplay = $this->getDateRangeDisplay($dateFrom, $dateTo);
-
-    return [
-        'total_days' => $totalDays,
-        'present_days' => $presentDays,
-        'absent_days' => $absentDays,
-        'leave_days' => $leaveDays,
-        'percentage' => $percentage,
-        'monthly' => $monthlyData,
-        'daily' => $dailyData,
-        'records' => $attendance,
-        'has_data' => true,
-        'date_from' => $dateFrom,
-        'date_to' => $dateTo,
-        'date_range_display' => $dateRangeDisplay
-    ];
-}
-    
     private function getDateRangeDisplay($dateFrom, $dateTo)
     {
         if ($dateFrom && $dateTo) {
@@ -369,7 +383,7 @@ private function getStudentAttendance($studentId, $dateFrom = null, $dateTo = nu
                 'total_subjects' => 0,
                 'passed_exams' => 0,
                 'failed_exams' => 0,
-                'overall_grade' => 'N/A'
+                'overall_grade' => 'N/A',
             ];
         }
 
@@ -377,17 +391,17 @@ private function getStudentAttendance($studentId, $dateFrom = null, $dateTo = nu
         $totalMaxMarks = $examMarks->sum('max_marks');
         $totalExams = $examMarks->groupBy('exam_id')->count();
         $totalSubjects = $examMarks->groupBy('subject_id')->count();
-        
-        $passedExams = $examMarks->filter(function($mark) {
+
+        $passedExams = $examMarks->filter(function ($mark) {
             return $mark->marks_obtained >= $mark->passing_marks;
         })->count();
-        
-        $failedExams = $examMarks->filter(function($mark) {
+
+        $failedExams = $examMarks->filter(function ($mark) {
             return $mark->marks_obtained < $mark->passing_marks;
         })->count();
 
-        $averagePercentage = $totalMaxMarks > 0 
-            ? ($totalMarks / $totalMaxMarks) * 100 
+        $averagePercentage = $totalMaxMarks > 0
+            ? ($totalMarks / $totalMaxMarks) * 100
             : 0;
 
         $grade = $this->calculateGrade($averagePercentage);
@@ -400,7 +414,7 @@ private function getStudentAttendance($studentId, $dateFrom = null, $dateTo = nu
             'total_subjects' => $totalSubjects,
             'passed_exams' => $passedExams,
             'failed_exams' => $failedExams,
-            'overall_grade' => $grade
+            'overall_grade' => $grade,
         ];
     }
 
@@ -430,7 +444,7 @@ private function getStudentAttendance($studentId, $dateFrom = null, $dateTo = nu
             ['grade' => 'B', 'min' => 60, 'max' => 69, 'description' => 'Satisfactory'],
             ['grade' => 'C', 'min' => 50, 'max' => 59, 'description' => 'Average'],
             ['grade' => 'D', 'min' => 40, 'max' => 49, 'description' => 'Below Average'],
-            ['grade' => 'F', 'min' => 0, 'max' => 39, 'description' => 'Fail']
+            ['grade' => 'F', 'min' => 0, 'max' => 39, 'description' => 'Fail'],
         ];
     }
 

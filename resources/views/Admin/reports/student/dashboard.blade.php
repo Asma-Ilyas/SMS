@@ -13,16 +13,32 @@
                 <p class="text-sm text-gray-500 mt-1">Comprehensive student performance and progress reports</p>
             </div>
             <div class="flex flex-wrap gap-2">
-                <a href="{{ route('admin.reports.student.generate') }}" 
+                {{-- Both actions require a student to be selected first (student_id is required
+                     by the controller), so these scroll to the filter form instead of hitting
+                     the route directly with no params — that would silently fail validation
+                     and bounce back to this page. --}}
+                <a href="#filter-section"
                    class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">
                     📝 Generate Report
                 </a>
-                <a href="{{ route('admin.reports.student.export-pdf') }}" 
+                <a href="#filter-section"
                    class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
                     📥 Export PDF
                 </a>
             </div>
         </div>
+
+        {{-- Validation errors (e.g. missing student selection) --}}
+        @if ($errors->any())
+        <div class="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
+            <p class="font-semibold text-sm mb-1">Please fix the following:</p>
+            <ul class="list-disc list-inside text-sm">
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+        @endif
 
         {{-- Stats Cards --}}
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -84,15 +100,15 @@
         </div>
 
         {{-- Filter Section --}}
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200/80 p-5 mb-6">
+        <div id="filter-section" class="bg-white rounded-xl shadow-sm border border-gray-200/80 p-5 mb-6">
             <h3 class="font-semibold text-gray-800 mb-4">🔍 Filter Reports</h3>
             <form method="GET" action="{{ route('admin.reports.student.generate') }}" class="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Select Student</label>
-                    <select name="student_id" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                        <option value="">All Students</option>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Select Student <span class="text-red-500">*</span></label>
+                    <select name="student_id" required class="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                        <option value="">Select a student…</option>
                         @foreach($students as $student)
-                            <option value="{{ $student->id }}">
+                            <option value="{{ $student->id }}" @selected(request('student_id') == $student->id)>
                                 {{ $student->first_name }} {{ $student->last_name }} 
                                 ({{ $student->admission_number ?? 'N/A' }})
                             </option>
@@ -104,7 +120,7 @@
                     <select name="session_id" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                         <option value="">All Sessions</option>
                         @foreach($academicSessions as $session)
-                            <option value="{{ $session->id }}">
+                            <option value="{{ $session->id }}" @selected(request('session_id') == $session->id)>
                                 {{ $session->name }} ({{ $session->start_date }} - {{ $session->end_date }})
                             </option>
                         @endforeach
@@ -112,11 +128,11 @@
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Date From</label>
-                    <input type="date" name="date_from" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    <input type="date" name="date_from" value="{{ request('date_from') }}" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Date To</label>
-                    <input type="date" name="date_to" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    <input type="date" name="date_to" value="{{ request('date_to') }}" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                 </div>
                 <div class="md:col-span-4 flex gap-2">
                     <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">

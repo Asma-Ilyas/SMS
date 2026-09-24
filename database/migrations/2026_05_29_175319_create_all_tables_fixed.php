@@ -696,7 +696,7 @@ return new class extends Migration
         Schema::create('payment_methods', function (Blueprint $table) {
             $table->id();
             $table->string('name');
-            $table->enum('type', ['bank', 'mobile_wallet', 'cash']);
+            $table->enum('type', ['bank', 'mobile_wallet', 'cash', 'cheque']);
             $table->foreignId('bank_id')->nullable()->constrained('banks')->onDelete('set null');
             $table->string('account_number')->nullable();
             $table->string('qr_code_url')->nullable();

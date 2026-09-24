@@ -167,6 +167,7 @@ class DatabaseSeeder extends Seeder
             'student_discounts',
             'invoices',
             'student_fee_submissions',
+            'payment_methods',
 
             // Attendance tables
             'student_attendance_summaries',
@@ -209,7 +210,6 @@ class DatabaseSeeder extends Seeder
             'grades',
             'academic_sessions',
             'subjects',
-            'payment_methods',
             'banks',
             'discounts',
             'fee_submission_types',
@@ -1005,7 +1005,7 @@ class DatabaseSeeder extends Seeder
         }
 
         // ============================================================
-        // 14. BANKS & FINANCIAL SETUP
+        // 14. BANKS, PAYMENT METHODS & FINANCIAL SETUP
         // ============================================================
         $this->command->info("\n🏦 Creating financial setup...");
 
@@ -1034,6 +1034,85 @@ class DatabaseSeeder extends Seeder
             ],
         ];
         DB::table('banks')->insert($banks);
+        $bankMap = DB::table('banks')->pluck('id', 'name')->toArray();
+
+        // ------------------------------------------------------------
+        // PAYMENT METHODS
+        // ------------------------------------------------------------
+        $this->command->info("\n💳 Creating payment methods...");
+
+        $paymentMethodsData = [
+            [
+                'name'           => 'Habib Bank Ltd - Bank Transfer',
+                'type'           => 'bank',
+                'bank_id'        => $bankMap['Habib Bank Ltd'],
+                'account_number' => '1234-567890-01',
+                'qr_code_url'    => null,
+                'instructions'   => 'Deposit or transfer to the account above and upload the payment receipt.',
+                'is_active'      => true,
+                'created_at'     => now(),
+                'updated_at'     => now(),
+            ],
+            [
+                'name'           => 'Meezan Bank - Bank Transfer',
+                'type'           => 'bank',
+                'bank_id'        => $bankMap['Meezan Bank'],
+                'account_number' => '5566-778899-03',
+                'qr_code_url'    => null,
+                'instructions'   => 'Deposit or transfer to the account above and upload the payment receipt.',
+                'is_active'      => true,
+                'created_at'     => now(),
+                'updated_at'     => now(),
+            ],
+            [
+                'name'           => 'JazzCash',
+                'type'           => 'mobile_wallet',
+                'bank_id'        => null,
+                'account_number' => '0300-1234567',
+                'qr_code_url'    => null,
+                'instructions'   => 'Send payment to the JazzCash number above and upload the screenshot as proof.',
+                'is_active'      => true,
+                'created_at'     => now(),
+                'updated_at'     => now(),
+            ],
+            [
+                'name'           => 'EasyPaisa',
+                'type'           => 'mobile_wallet',
+                'bank_id'        => null,
+                'account_number' => '0301-7654321',
+                'qr_code_url'    => null,
+                'instructions'   => 'Send payment to the EasyPaisa number above and upload the screenshot as proof.',
+                'is_active'      => true,
+                'created_at'     => now(),
+                'updated_at'     => now(),
+            ],
+            [
+                'name'           => 'Cash Payment',
+                'type'           => 'cash',
+                'bank_id'        => null,
+                'account_number' => null,
+                'qr_code_url'    => null,
+                'instructions'   => 'Pay in cash at the school accounts office and collect your receipt.',
+                'is_active'      => true,
+                'created_at'     => now(),
+                'updated_at'     => now(),
+            ],
+            [
+                'name'           => 'Cheque',
+                'type'           => 'cheque',
+                'bank_id'        => null,
+                'account_number' => null,
+                'qr_code_url'    => null,
+                'instructions'   => 'Cheques should be made payable to the school and submitted at the accounts office.',
+                'is_active'      => true,
+                'created_at'     => now(),
+                'updated_at'     => now(),
+            ],
+        ];
+
+        DB::table('payment_methods')->insert($paymentMethodsData);
+        $paymentMethodMap = DB::table('payment_methods')->pluck('id', 'name')->toArray();
+        $this->command->info("✅ " . count($paymentMethodsData) . " payment methods created");
 
         $discounts = [
             ['name' => 'Sibling Discount 10%', 'type' => 'percentage', 'value' => 10, 'description' => 'For siblings studying in same school', 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
@@ -1115,6 +1194,7 @@ class DatabaseSeeder extends Seeder
                     'invoice_number'            => 'INV-' . str_pad($installmentId, 6, '0', STR_PAD_LEFT),
                     'student_id'                => $student->id,
                     'bank_id'                   => rand(1, 2),
+                    'payment_method_id'         => $status == 'paid' ? $paymentMethodMap[array_rand($paymentMethodMap)] : null,
                     'student_fee_submission_id' => $installmentId,
                     'amount'                    => $feeAmount,
                     'discount_amount'           => 0,
@@ -1154,6 +1234,7 @@ class DatabaseSeeder extends Seeder
                     'invoice_number'            => 'INV-' . str_pad($installmentId, 6, '0', STR_PAD_LEFT),
                     'student_id'                => $student->id,
                     'bank_id'                   => 1,
+                    'payment_method_id'         => $paymentMethodMap[array_rand($paymentMethodMap)],
                     'student_fee_submission_id' => $installmentId,
                     'amount'                    => 3000,
                     'discount_amount'           => 0,
@@ -2372,6 +2453,7 @@ class DatabaseSeeder extends Seeder
         $this->command->info("📊 " . count($marksData) . " exam marks");
         $this->command->info("🏆 " . count($resultData) . " exam results with ranks");
         $this->command->info("💰 " . count($installmentData) . " fee installments");
+        $this->command->info("💳 " . count($paymentMethodsData) . " payment methods");
         $this->command->info("📋 " . count($timetableData) . " timetable entries");
         $this->command->info("");
         $this->command->info("🚌 Transport System:");

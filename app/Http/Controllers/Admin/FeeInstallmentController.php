@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Bank;
 use App\Models\FeeSubmissionType;
 use App\Models\Invoice;
+use App\Models\PaymentMethod;
 use App\Models\Student;
 use App\Models\StudentFeeSubmission;
 use App\Support\PortalAlert;
@@ -53,7 +54,8 @@ class FeeInstallmentController extends Controller
 
         $installment = StudentFeeSubmission::create($data);
 
-        // Generate invoice
+        // Generate invoice (no payment method chosen yet at creation time —
+        // that happens later from the show page via generateInvoice() below)
         $this->generateInvoice($installment);
 
         PortalAlert::toStudent(
@@ -75,7 +77,7 @@ class FeeInstallmentController extends Controller
      */
     public function show($id)
     {
-        $installment = StudentFeeSubmission::with(['student', 'feeSubmissionType', 'invoices', 'invoices.bank'])
+        $installment = StudentFeeSubmission::with(['student', 'feeSubmissionType', 'invoices', 'invoices.bank', 'invoices.paymentMethod'])
             ->findOrFail($id);
 
         return view('admin.fees.installments.show', compact('installment'));
@@ -202,24 +204,74 @@ class FeeInstallmentController extends Controller
     }
 
     /**
-     * Generate invoice for installment
+     * Generate invoice for installment automatically (called internally,
+     * e.g. right after store()). No payment method is known yet at this point.
      */
-    protected function generateInvoice($installment)
+    protected function autoGenerateInvoice($installment)
     {
-        $invoiceNumber = 'INV-' . str_pad(Invoice::count() + 1, 6, '0', STR_PAD_LEFT);
-
         Invoice::create([
-            'invoice_number'            => $invoiceNumber,
+            'invoice_number'            => Invoice::generateInvoiceNumber(),
             'student_id'                => $installment->student_id,
             'bank_id'                   => null,
             'student_fee_submission_id' => $installment->id,
             'amount'                    => $installment->amount,
             'discount_amount'           => 0,
+            'net_amount'                => $installment->amount,
             'due_date'                  => $installment->due_date,
             'status'                    => 'pending',
-            'created_at'                => now(),
-            'updated_at'                => now(),
         ]);
+    }
+
+    /**
+     * Kept for backwards compatibility with the call in store() —
+     * delegates to autoGenerateInvoice().
+     */
+    protected function generateInvoice($installment)
+    {
+        $this->autoGenerateInvoice($installment);
+    }
+
+    /**
+     * Generate a voucher/invoice on demand from the installment's show page,
+     * with the admin's chosen payment method. This is what the "Generate
+     * Voucher" button on show.blade.php submits to.
+     */
+    public function generateInvoiceForInstallment(Request $request, $installment)
+    {
+        $installment = StudentFeeSubmission::findOrFail($installment);
+
+        $request->validate([
+            'payment_method_id' => 'required|exists:payment_methods,id',
+        ]);
+
+        // If an invoice already exists for this installment, update it
+        // with the chosen payment method instead of creating a duplicate.
+        $invoice = $installment->invoices()->first();
+
+        if ($invoice) {
+            $invoice->update([
+                'payment_method_id' => $request->payment_method_id,
+            ]);
+        } else {
+            $invoice = Invoice::create([
+                'invoice_number'            => Invoice::generateInvoiceNumber(),
+                'student_id'                => $installment->student_id,
+                'bank_id'                   => null,
+                'payment_method_id'         => $request->payment_method_id,
+                'student_fee_submission_id' => $installment->id,
+                'amount'                    => $installment->amount,
+                'discount_amount'           => 0,
+                'net_amount'                => $installment->amount,
+                'due_date'                  => $installment->due_date,
+                'status'                    => 'pending',
+            ]);
+        }
+
+        // Build the actual 3-copy voucher PDF
+        $invoice->generateChallan();
+
+        return redirect()->route('admin.fee-installments.show', $installment->id)
+            ->with('success', 'Voucher generated successfully.');
     }
 
     /**
@@ -236,10 +288,15 @@ class FeeInstallmentController extends Controller
             return back()->with('error', 'No invoice found for this installment.');
         }
 
-        // Generate PDF logic here
-        // return PDF::download(...);
+        if (!$invoice->challan_file || !\Illuminate\Support\Facades\Storage::disk('public')->exists($invoice->challan_file)) {
+            // Generate it now if it doesn't exist yet
+            $invoice->generateChallan();
+        }
 
-        return back()->with('info', 'Challan download functionality will be implemented.');
+        return \Illuminate\Support\Facades\Storage::disk('public')->download(
+            $invoice->challan_file,
+            $invoice->invoice_number . '.pdf'
+        );
     }
 
     /**

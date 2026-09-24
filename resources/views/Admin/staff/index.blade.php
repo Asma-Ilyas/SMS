@@ -41,8 +41,7 @@
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap">{{ $member->email }}</td>
                         <td class="px-6 py-4 whitespace-nowrap">{{ $member->designation ?? '—' }}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">₹{{ number_format($member->basic_salary ?? 0, 2) }}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">
+                        <td class="px-6 py-4 whitespace-nowrap">Rs. {{ number_format($member->basic_salary ?? 0, 2) }}</td>                        <td class="px-6 py-4 whitespace-nowrap">
                             <span class="px-2 py-1 text-xs rounded-full {{ $member->is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800' }}">
                                 {{ $member->is_active ? 'Active' : 'Inactive' }}
                             </span>

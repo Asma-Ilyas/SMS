@@ -9,10 +9,10 @@ use Barryvdh\DomPDF\Facade\Pdf;
 class Invoice extends Model
 {
     protected $fillable = [
-        'invoice_number', 'student_id', 'bank_id', 'student_fee_installment_id',
-        'payment_method_id', 'amount', 'due_date', 'status', 'challan_file',
-        'payment_proof_file', 'payment_remarks', 'paid_at', 'approved_by',
-        'discount_id', 'discount_amount', 'original_amount', 'discount_notes'
+        'invoice_number', 'student_id', 'bank_id', 'student_fee_submission_id',
+        'payment_method_id', 'amount', 'discount_amount', 'net_amount',
+        'due_date', 'status', 'challan_file', 'payment_proof_file',
+        'payment_remarks', 'paid_at', 'approved_by', 'discount_id',
     ];
 
     protected $casts = [
@@ -20,7 +20,7 @@ class Invoice extends Model
         'paid_at' => 'datetime',
         'amount' => 'decimal:2',
         'discount_amount' => 'decimal:2',
-        'original_amount' => 'decimal:2',
+        'net_amount' => 'decimal:2',
     ];
 
     public function student()
@@ -35,7 +35,7 @@ class Invoice extends Model
 
     public function installment()
     {
-        return $this->belongsTo(StudentFeeInstallment::class, 'student_fee_installment_id');
+        return $this->belongsTo(StudentFeeSubmission::class, 'student_fee_submission_id');
     }
 
     public function paymentMethod()
@@ -58,6 +58,12 @@ class Invoice extends Model
         $this->load(['student', 'installment.feeType', 'paymentMethod']);
         $allBanks = Bank::where('is_active', true)->get();
         $mobileWallets = PaymentMethod::where('type', 'mobile_wallet')->where('is_active', true)->get();
+
+        // Bug fix: was referencing an undefined $invoice variable — the view
+        // needs $this (the invoice currently being generated), not a variable
+        // that was never defined anywhere in this method.
+        $invoice = $this;
+
         $pdf = Pdf::loadView('admin.fees.invoices.voucher', compact('invoice', 'allBanks', 'mobileWallets'));
         $path = 'invoices/voucher_' . $this->invoice_number . '.pdf';
         Storage::disk('public')->put($path, $pdf->output());
@@ -84,8 +90,7 @@ class Invoice extends Model
     {
         $this->discount_id = $discountId;
         $this->discount_amount = $discountAmount;
-        $this->original_amount = $this->amount;
-        $this->amount = max(0, $this->amount - $discountAmount);
+        $this->net_amount = max(0, $this->amount - $discountAmount);
         $this->save();
     }
 }

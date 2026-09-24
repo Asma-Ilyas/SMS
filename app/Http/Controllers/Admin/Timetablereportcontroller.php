@@ -245,14 +245,17 @@ class TimetableReportController extends Controller
         $entries = collect();
         $timeSlots = collect();
         $title = 'Timetable';
-        $activeTiming = SchoolTiming::where('is_active', true)->first();
+
+        // NOTE: local variable renamed to $timing (was $activeTiming) so it
+        // matches what print.blade.php expects ($timing->session_name).
+        $timing = SchoolTiming::where('is_active', true)->first();
         
-        if (!$activeTiming) {
-            $activeTiming = SchoolTiming::first();
+        if (!$timing) {
+            $timing = SchoolTiming::first();
         }
         
-        if ($activeTiming) {
-            $timeSlots = TimeSlot::where('school_timing_id', $activeTiming->id)
+        if ($timing) {
+            $timeSlots = TimeSlot::where('school_timing_id', $timing->id)
                 ->where('is_active', true)
                 ->orderBy('sort_order')
                 ->get();
@@ -264,8 +267,8 @@ class TimetableReportController extends Controller
             
             $entries = TimetableEntry::with(['subject', 'teacher', 'room', 'timeSlot'])
                 ->where('class_section_id', $classSectionId)
-                ->whereHas('timeSlot', function($q) use ($activeTiming) {
-                    $q->where('school_timing_id', $activeTiming->id ?? 0);
+                ->whereHas('timeSlot', function($q) use ($timing) {
+                    $q->where('school_timing_id', $timing->id ?? 0);
                 })
                 ->orderBy('day_of_week')
                 ->orderBy('time_slot_id')
@@ -276,19 +279,28 @@ class TimetableReportController extends Controller
             
             $entries = TimetableEntry::with(['classSection', 'subject', 'room', 'timeSlot'])
                 ->where('teacher_id', $teacherId)
-                ->whereHas('timeSlot', function($q) use ($activeTiming) {
-                    $q->where('school_timing_id', $activeTiming->id ?? 0);
+                ->whereHas('timeSlot', function($q) use ($timing) {
+                    $q->where('school_timing_id', $timing->id ?? 0);
                 })
                 ->orderBy('day_of_week')
                 ->orderBy('time_slot_id')
                 ->get();
         }
         
+        // No active/available timing at all — bail out to the no-active view
+        // instead of letting the blade file crash on a null $timing.
+        if (!$timing) {
+            return redirect()->route('admin.timetable-reports.no-active');
+        }
+        
+        // print.blade.php expects $slots (not $timeSlots)
+        $slots = $timeSlots;
+        
         return view('admin.timetable-reports.print', compact(
             'entries',
-            'timeSlots',
+            'slots',
             'title',
-            'activeTiming'
+            'timing'
         ));
     }
 
